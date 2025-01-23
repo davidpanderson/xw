@@ -339,7 +339,7 @@ void find_slots(GRID &grid) {
     }
 }
 
-void print_grid(GRID &grid, bool curses) {
+void print_grid(GRID &grid, bool curses, FILE *f) {
     char chars[MAX_SIZE][MAX_SIZE*2];
     int i, j;
     for (i=0; i<size[0]; i++) {
@@ -367,7 +367,7 @@ void print_grid(GRID &grid, bool curses) {
         refresh();
     } else {
         for (i=0; i<size[0]; i++) {
-            printf("%s\n", &(chars[i][0]));
+            fprintf(f, "%s\n", &(chars[i][0]));
         }
     }
 }

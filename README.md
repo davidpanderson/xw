@@ -1,19 +1,19 @@
 # XW: a filler for generalized crossword grids
 
-XW is a C++ library that, given a word list and a crossword puzzle grid,
-finds all the ways the grid can be filled with words from the list.
+Given a word list and a crossword puzzle grid,
+XW finds all the ways the grid can be filled with words from the list.
 
 ## Generalized grids
 
 In XW terminology, 'grid' is a set of 'slots',
 each of which holds a word of a fixed length.
 A 'cell' (letter space) in one slot can be 'linked' to a cell in another slot,
-in which case the 2 cells must contain the same letter.
+in which case the two cells must contain the same letter.
 
 This structure can represent
 * conventional 2D grids (black-square, barrier style, etc.)
-* the puzzles (I forget the name)
-occasionally featured in the NYT Sunday Magazine
+* 'Split Decisions' puzzles,
+occasionally featured in the NYT Sunday Magazine,
 where pairs of slots share leading and trailing letters.
 * grids on tori or Klein bottles
 * a variety of other planar and non-planar forms.
@@ -80,7 +80,7 @@ You can then
 * Ask for the next solution in sequence (this will usually be a small change).
 * Restart with a different random seed
 (this will usually produce a completely different solution).
-* Add a word to the 'veto' list.
+* Add a word to the 'veto' list (see below).
 
 Now let's try a generalized grid, using this grid file:
 ```
@@ -195,8 +195,10 @@ XW includes a script `wlist.php` that takes such a file,
 skips words below a given score,
 and outputs the words in lower case.
 
-You can combine word lists by concatenating them
-and piping through `sort` and `uniq.
+To combine word lists:
+```
+cat list1 list2 | sort | uniq > list3
+```
 
 A 'veto list' is a list of words that may not be used in a solution.
 It has same format as word lists.

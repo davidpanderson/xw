@@ -17,8 +17,16 @@ extern void make_grid(const char* filename, GRID&);
     // We supply two variants:
     // black-square format (NYT type puzzles)
     // line-grid format (Atlantic cryptic type puzzles)
-extern void print_grid(GRID&, bool curses);
+extern void print_grid(GRID&, bool curses, FILE *f);
     // print the (partially-filled) grid
+    // if curses is true, use curses
+    // else write to the given FILE*
+
+const char* veto_fname = "vetoed_words";
+const char* solution_fname = "solutions";
+FILE* solution_file;
+const char* word_list = DEFAULT_WORD_LIST;
+bool reverse_words = false;
 
 ///////////// WORD LISTS AND PATTERNS //////////////
 
@@ -26,6 +34,17 @@ extern void print_grid(GRID&, bool curses);
 // (represented by _)
 
 WORDS words;
+
+inline void reverse_str(char *s) {
+    int length = strlen(s);
+    int i, j;
+    char c;
+    for (i=0, j=length-1; i<j; i++, j--) {
+        c = s[i];
+        s[i] = s[j];
+        s[j] = c;
+    }
+}
 
 // read words from file into per-length vectors
 //
@@ -40,10 +59,39 @@ void WORDS::read(const char* fname) {
         int len = strlen(buf)-1;
         if (len >= MAX_LEN) continue;
         buf[len] = 0;
+        if (have_vetoed_words[len]) {
+            if (vetoed_words[len].find(buf) != vetoed_words[len].end()) {
+                printf("vetoed: %s\n", buf);
+                continue;
+            }
+        }
         nwords[len]++;
         words[len].push_back(strdup(buf));
+        if (reverse_words) {
+            reverse_str(buf);
+            words[len].push_back(strdup(buf));
+        }
     }
+    fclose(f);
 }
+
+void WORDS::read_veto_file(const char* fname) {
+    FILE* f = fopen(fname, "r");
+    if (!f) {
+        printf("no veto file %s\n", fname);
+        exit(1);
+    }
+    char buf[256];
+    while (fgets(buf, 256, f)) {
+        int len = strlen(buf)-1;
+        if (len >= MAX_LEN) continue;
+        buf[len] = 0;
+        vetoed_words[len].insert(buf);
+        have_vetoed_words[len] = true;
+    }
+    fclose(f);
+}
+
 void WORDS::shuffle() {
     for (int i=1; i<=MAX_LEN; i++) {
         if (words[i].empty()) continue;
@@ -93,6 +141,7 @@ struct PATTERN_CACHE {
     void init(int _len, WLIST *_wlist) {
         len = _len;
         wlist = _wlist;
+        map.clear();
     }
     ILIST* get_list(char* pattern) {
         auto it = map.find(pattern);
@@ -105,9 +154,6 @@ struct PATTERN_CACHE {
             return it->second;
         }
     }
-    void clear() {
-        map.clear();
-    }
 };
 
 // for each word len, cache of pattern -> ILIST pairs
@@ -117,12 +163,6 @@ PATTERN_CACHE pattern_cache[MAX_LEN];
 void init_pattern_cache() {
     for (int i=1; i<=MAX_LEN; i++) {
         pattern_cache[i].init(i, &(words.words[i]));
-    }
-}
-
-void clear_pattern_cache() {
-    for (int i=1; i<=MAX_LEN; i++) {
-        pattern_cache[i].clear();
     }
 }
 
@@ -559,6 +599,47 @@ bool GRID::backtrack() {
     }
 }
 
+#define CONT    1
+#define RESTART 2
+#define EXIT    3
+
+int GRID::get_commands() {
+    int retval = CONT;
+    while (1) {
+        printf("enter command\n"
+            "s: append solution to file (default 'solutions')\n"
+            "<CR>: next solution\n"
+            "v word: add word to veto list\n> "
+            "r: restart with new random word order\n> "
+            "q: quit\n> "
+        );
+        char buf[256];
+        fgets(buf, sizeof(buf), stdin);
+        int len = strlen(buf);
+        if (len == 1) {
+            return retval;
+        }
+        buf[len-1] = 0;
+        if (!strcmp(buf, "r")) {
+            return RESTART;
+        } else if (!strcmp(buf, "q")) {
+            return EXIT;
+        } else if (!strcmp(buf, "s")) {
+            print_grid(*this, false, solution_file);
+            fflush(solution_file);
+        } else if (strstr(buf, "v ")==buf) {
+            FILE *f = fopen(veto_fname, "a");
+            fprintf(f, "%s\n", buf+2);
+            fclose(f);
+            words.read_veto_file(veto_fname);
+            words.read(word_list);
+            retval = RESTART;
+        } else {
+            printf("bad command %s\n", buf);
+        }
+    }
+}
+
 bool GRID::find_solutions(bool curses, double period) {
     static int count = 0;
     while (1) {
@@ -570,18 +651,17 @@ bool GRID::find_solutions(bool curses, double period) {
                 endwin();
             }
             printf("\nSolution found:\n");
-            print_grid(*this, false);
-            printf("enter command\n"
-                "s filename: append solution to file (default 'solutions')\n"
-                "<CR>: next solution\n"
-                "v word: add word to veto list\n> "
-                "r: restart with new random word order\n> "
-                "q: quit\n> "
-            );
-            char buf[256];
-            fgets(buf, sizeof(buf), stdin);
-            if (buf[0] != '\n') break;
-            backtrack();
+            print_grid(*this, false, stdout);
+            switch (get_commands()) {
+            case CONT:
+                backtrack();
+                break;
+            case RESTART:
+                restart();
+                break;
+            case EXIT:
+                exit(0);
+            }
             if (curses) {
                 initscr();
             }
@@ -595,7 +675,7 @@ bool GRID::find_solutions(bool curses, double period) {
         count++;
         if (count == 10000) {
             count = 0;
-            print_grid(*this, curses);
+            print_grid(*this, curses, stdout);
         }
 #if VERBOSE_STEP_STATE
         print_state();
@@ -604,12 +684,21 @@ bool GRID::find_solutions(bool curses, double period) {
     printf("no more solutions\n");
 }
 
+void GRID::restart() {
+    for (SLOT* slot: slots) {
+        strcpy(slot->filled_pattern, slot->preset_pattern);
+    }
+    words.shuffle();
+    init_pattern_cache();
+    filled_slots.clear();
+    prepare_grid();
+}
+
 int main(int argc, char** argv) {
     GRID grid;
     bool curses = true;
     bool show_grid = false;
-    double period;
-    const char* word_list = DEFAULT_WORD_LIST;
+    double period=0;
     const char* grid_file = NULL;
 
     for (int i=1; i<argc; i++) {
@@ -623,8 +712,16 @@ int main(int argc, char** argv) {
             show_grid = true;
         } else if (!strcmp(argv[i], "--period")) {
             period = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--reverse")) {
+            reverse_words = true;
+        } else if (!strcmp(argv[i], "--veto_file")) {
+            veto_fname = argv[++i];
+        } else if (!strcmp(argv[i], "--solution_file")) {
+            solution_fname = argv[++i];
         }
     }
+    solution_file = fopen(solution_fname, "wa");
+    words.read_veto_file(veto_fname);
     words.read(word_list);
     words.shuffle();
     init_pattern_cache();

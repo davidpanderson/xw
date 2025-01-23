@@ -1,5 +1,6 @@
 #include <cstring>
 #include <vector>
+#include <unordered_set>
 #include <stack>
 #include <cstdlib>
 #include <ncurses.h>
@@ -38,14 +39,18 @@ using namespace std;
     // longest word plus 1 for NULL
 
 typedef vector<char*> WLIST;
+typedef unordered_set<string> WSET;
 typedef vector<int> ILIST;
 typedef bool MASK[MAX_LEN];
 
 struct WORDS {
     WLIST words[MAX_LEN+1];
+    WSET vetoed_words[MAX_LEN+1];
+    bool have_vetoed_words[MAX_LEN+1];
     int nwords[MAX_LEN+1];
     int max_len;
-    void read(const char* fname);
+    void read(const char* word_list);
+    void read_veto_file(const char* fname);
     void print_counts();
     void shuffle();
 };
@@ -63,12 +68,18 @@ struct GRID;
 struct LINK {
     SLOT *other_slot;       // NULL if no link
     int other_pos;
+    LINK() {
+        other_slot = NULL;
+        other_pos = 0;
+    }
     inline bool empty() {
         return other_slot == NULL;
     }
 };
 
 typedef enum {LETTER_UNKNOWN, LETTER_OK, LETTER_NOT_OK} LETTER_STATUS;
+
+static int slot_num = 0;
 
 struct SLOT {
     int num;        // number in grid (arbitrary)
@@ -108,6 +119,7 @@ struct SLOT {
     // create SLOT; you may increase len later
     SLOT(int _len=0) {
         len = _len;
+        num = slot_num++;
         strcpy(preset_pattern, NULL_PATTERN);
     }
     void add_link(int this_pos, SLOT* other_slot, int other_pos);
@@ -135,7 +147,6 @@ struct SLOT {
 };
 
 struct GRID {
-    int slot_num=0;
     vector<SLOT*> slots;
     vector<SLOT*> filled_slots;
     int npreset_slots;
@@ -143,7 +154,6 @@ struct GRID {
         // these are marked as filled but not pushed on the filled stack
 
     SLOT* add_slot(SLOT* slot) {
-        slot->num = slot_num++;
         slots.push_back(slot);
         return slot;
     }
@@ -194,4 +204,6 @@ struct GRID {
     bool backtrack();
     void fill_slot(SLOT*);
     bool find_solutions(bool curses, double period);
+    void restart();
+    int get_commands();
 };

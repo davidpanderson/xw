@@ -276,7 +276,7 @@ void find_slots(GRID &grid) {
 // There can be unchecked squares, so to print the grid it doesn't
 // suffice to print just the across entries
 //
-void print_grid(GRID &grid, bool curses) {
+void print_grid(GRID &grid, bool curses, FILE* f) {
     char c;
     for (int i=0; i<size[0]; i++) {
         for (int j=0; j<size[1]; j++) {
@@ -305,7 +305,7 @@ void print_grid(GRID &grid, bool curses) {
         }
     } else {
         for (int i=0; i<file_nrows; i++) {
-            printf("%s\n", &(file_chars[i][0]));
+            fprintf(f, "%s\n", &(file_chars[i][0]));
         }
     }
 }
