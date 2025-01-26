@@ -1,11 +1,11 @@
-# XW: a filler for generalized crossword grids
+# XW: fill generalized crossword grids
 
-Given a word list and a crossword puzzle grid,
+Given a crossword puzzle grid and a word list,
 XW finds all the ways the grid can be filled with words from the list.
 
 ## Generalized grids
 
-In XW terminology, 'grid' is a set of 'slots',
+In our terminology, 'grid' is a set of 'slots',
 each of which holds a word of a fixed length.
 A 'cell' (letter space) in one slot can be 'linked' to a cell in another slot,
 in which case the two cells must contain the same letter.
@@ -16,12 +16,11 @@ This structure can represent
 occasionally featured in the NYT Sunday Magazine,
 where pairs of slots share leading and trailing letters.
 * grids on tori or Klein bottles
-* a variety of other planar and non-planar forms.
+* other planar and non-planar forms.
 
 In the current version of XW, a cell can be shared by at most 2 slots,
 so XW can't represent e.g. 3D grids.
-Removing this limitation wouldn't be hard;
-let me know if you want this.
+Removing this limitation wouldn't be hard; let me know if you want this.
 
 XW provides several ways to describe grids, which are detailed below.
 
@@ -47,9 +46,9 @@ mirror
 .....*....*....
 ....*.....*....
 ```
-This describes the upper half of the grid;
+This describes the upper half of a 15x15 grid;
 asterisks are black squares.
-`mirror` says to duplicate this, rotated, for the lower half.
+`mirror` says to duplicate this, rotated 180 deg, for the lower half.
 
 Now run
 ```
@@ -58,7 +57,6 @@ black_square --grid_file bs_15_1
 
 After a second or so it will find a solution, such as
 ```
-Solution found:
 p l a t e * c y s t * e r r s
 r e b o p * p o o h * a h e m
 o v e r i n s u r e * t i p i
@@ -77,12 +75,12 @@ e d g y * r y e s * s e m e n
 ```
 You can then
 * Save this solution to a file.
-* Ask for the next solution in sequence (this will usually be a small change).
-* Restart with a different random seed
+* Get the next solution in sequence (this will usually be a small change).
+* Restart with a different random word shuffle
 (this will usually produce a completely different solution).
 * Add a word to the 'veto' list (see below).
 
-Now let's try a generalized grid, using this grid file:
+Now let's try a non-standard kind of grid, specified by this grid file:
 ```
 mirror
 wrap_row
@@ -205,12 +203,13 @@ It has same format as word lists.
 
 ## The XW software
 
-The XW software is structured as:
-* A main program (`wx.cpp`) which provides a command-line interface
-and includes the grid-filling logic.
-* A module, for a particular type of grid, that creates grids
+The XW software is structured as follows:
+
+* A main program (`wx.cpp`) provides a command-line interface
+and the grid-filling logic.
+* A module, for a particular type of grid, has functions to a) create a grid
 (typically by reading a file describing the grid)
-and prints a formatted representation of a partially or fully filled grid.
+and b) print a formatted representation of a partially or fully filled grid.
 XW comes with modules for two grid types:
 generalized black-square grids (`black_square.cpp`)
 and generalized barrier grids (`barrier.cpp`).
@@ -219,13 +218,15 @@ You can write modules for other types; see below.
 Link the main program to a grid module to produce 
 a type-specific executable (e.g. `black_square` and `barrier`).
 
-The main program has the following command-line arguments:
+The main program takes the following command-line arguments:
 
 `--word_list <filename>'
 
 Use the word list contained in the given file.  Default `words`.
 
 `--veto_file <filename>`
+
+Use the given file of vetoed words (see below).  Default `vetoed_words`.
 
 `--grid_file <filename>`
 
@@ -283,16 +284,18 @@ These are 2D arrays in which some cells are black,
 indicating word boundaries.
 These are used for traditional crosswords
 (e.g. NYT puzzles) and some cryptics (e.g. Out of Left Field).
+Examples of various sizes are here:
+https://crosswordgrids.com/links.html
 
 The above examples show the basic file format
 used by XW to represent black-square grids.
 
 By convention, black-square grids have no unchecked cells
-and no words shorter than 3 letters.
+and no slots shorter than 3 letters.
 XW doesn't enforce these conventions.
 Unchecked cells are not treated as 1-letter slots.
 
-The grid options (one per line at the start of the file) are:
+The grid options (one per line, at the start of the file) are:
 
 `mirror`
 
@@ -378,10 +381,10 @@ corresponding leftmost cell has no left barrier.
 XW provides an API for creating arbitrary grids.
 This API involves two structs, `SLOT` and `GRID`.
 
-`SLOT` represents a slot in a grid:
+`SLOT` represents a slot:
 ```
 struct SLOT {
-    int len;    // number of characters in word
+    int len;    // number of cells in slot
     // the following are optional; for convenience with planar grids
     int row, col;
     bool across;
@@ -410,20 +413,18 @@ struct GRID {
 A given cell can be shared by at most two slots.
 
 You must supply the following functions and link them
-with the XW main program (in xw.cpp).
+with the XW main program (`xw.cpp`).
 ```
 void make_grid(const char* fname, GRID &grid);
 void print_grid(GRID&, bool curses);
 ```
 
 `make_grid()` populates a `GRID`.
-If the main program was called with the `--grid_file` argument,
+If the main program is called with a `--grid_file` argument,
 the filename will be passed as `fname`.
 
 `print_grid()` 
 prints a grid (as ASCII characters on a screen).
-The way you do this is up to you.
-If `curses` is set, you should use `ncurses` library calls
+If `curses` is set, use `ncurses` library calls
 (e.g. `move()`,`printw()`, and `refresh()`)
 to print at the upper-left corner of the screen.
-

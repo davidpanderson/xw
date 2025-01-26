@@ -61,7 +61,6 @@ void WORDS::read(const char* fname) {
         buf[len] = 0;
         if (have_vetoed_words[len]) {
             if (vetoed_words[len].find(buf) != vetoed_words[len].end()) {
-                printf("vetoed: %s\n", buf);
                 continue;
             }
         }
@@ -718,6 +717,9 @@ int main(int argc, char** argv) {
             veto_fname = argv[++i];
         } else if (!strcmp(argv[i], "--solution_file")) {
             solution_fname = argv[++i];
+        } else {
+            fprintf(stderr, "unknown option '%s'\n", argv[i]);
+            exit(1);
         }
     }
     solution_file = fopen(solution_fname, "wa");
