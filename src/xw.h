@@ -39,9 +39,11 @@ using namespace std;
     // longest word plus 1 for NULL
 
 typedef vector<char*> WLIST;
+    // a list of words
 typedef unordered_set<string> WSET;
+    // a set of (vetoed) words; constant-time lookup
 typedef vector<int> ILIST;
-typedef bool MASK[MAX_LEN];
+    // a list of indices into a WLIST (i.e. a subset of the words)
 
 struct WORDS {
     WLIST words[MAX_LEN+1];
@@ -82,20 +84,20 @@ typedef enum {LETTER_UNKNOWN, LETTER_OK, LETTER_NOT_OK} LETTER_STATUS;
 static int slot_num = 0;
 
 struct SLOT {
-    int num;        // number in grid (arbitrary)
+    int num;        // number in grid (unique, but otherwise arbitrary)
     int len;
-    LINK links[MAX_LEN];
+    LINK links[MAX_LEN];    // crossing slots
 
     bool filled;
         // is this slot filled?
-    char filled_pattern[MAX_LEN];
-        // letters from crossing filled slots lower on stack
     char preset_pattern[MAX_LEN];
         // preset letters
+    char filled_pattern[MAX_LEN];
+        // letters from crossing filled slots lower on stack
     ILIST *compatible_words;
-        // words compatible with this pattern
+        // words compatible with filled pattern
     int next_word_index;
-        // next compatible word to try
+        // if filled, next compatible word to try
     char current_word[MAX_LEN];
         // if filled, current word
     int stack_level;
