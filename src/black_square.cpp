@@ -15,6 +15,8 @@
 // --twist_row, --twist_col
 //      if wrap, apply a twist (e.g. Klein bottle)
 
+#define DEFAULT_GRID_FILE "../grids/bs_11_1"
+
 #define MAX_SIZE 22
     // NYT sunday is 21x21
 
@@ -155,6 +157,7 @@ void read_grid_file(FILE *f) {
     // check for flags
     //
     while (fgets(buf, sizeof(buf), f)) {
+        if (buf[0] == '#') continue;
         if (!strcmp(buf, "mirror\n")) {
             mirror = true;
             continue;
@@ -373,7 +376,7 @@ void print_grid(GRID &grid, bool curses, FILE *f) {
 }
 
 void make_grid(const char* fname, GRID &grid) {
-    if (!fname) fname = "bs_11_1";
+    if (!fname) fname = DEFAULT_GRID_FILE;
     FILE *f = fopen(fname, "r");
     if (!f) {
         printf("no grid file %s\n", fname);

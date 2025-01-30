@@ -504,7 +504,7 @@ void GRID::fill_slot(SLOT* slot) {
 // - intersects S
 // - intersects an unfilled slot that intersects S
 //
-// This is used for "jumptracking": if we couldn't find a word for this slot,
+// This is used for "backjumping": if we couldn't find a word for this slot,
 // we want to backtrack all the way to a slot that will make a difference
 //
 int SLOT::top_affecting_level() {

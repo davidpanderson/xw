@@ -7,7 +7,7 @@
 
 using namespace std;
 
-#define DEFAULT_WORD_LIST   "words"
+#define DEFAULT_WORD_LIST   "../words/words"
 
 #define NO_DUPS     1
     // don't allow duplicate words
