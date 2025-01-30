@@ -7,10 +7,11 @@ Generalized grids include:
 
 * Conventional 2D grids (black-square, barrier style, etc.)
 * Grids on tori or Klein bottles
-* 'Split Decisions' puzzles,
-occasionally featured in the NYT Sunday Magazine,
+* 'Split Decisions' puzzles
 where pairs of slots share leading and trailing letters.
 * Other planar and non-planar forms.
+
+More information:
 
 * [XW documentation](https://github.com/davidpanderson/xw/wiki/XW-documentation)
 
