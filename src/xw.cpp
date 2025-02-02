@@ -1,7 +1,5 @@
 #include <cstdio>
 #include <cstring>
-#include <unordered_map>
-#include <algorithm>
 
 #include "xw.h"
 
@@ -10,7 +8,7 @@
 // xw: fill generalized crossword puzzle grids
 // This program enumerates all solutions for a given grid.
 
-// This function must be linked with code that exports the following.
+// It must be linked with these functions:
 
 extern void make_grid(const char* filename, GRID&);
     // read the given file and populate the GRID structure.
@@ -28,141 +26,25 @@ FILE* solution_file;
 const char* word_list = DEFAULT_WORD_LIST;
 bool reverse_words = false;
 
-///////////// WORD LISTS AND PATTERNS //////////////
+///////////////// SLOT ///////////////////////
 
-// 'pattern': a word in which some or all positions are undetermined
-// (represented by _)
-
-WORDS words;
-
-inline void reverse_str(char *s) {
-    int length = strlen(s);
-    int i, j;
-    char c;
-    for (i=0, j=length-1; i<j; i++, j--) {
-        c = s[i];
-        s[i] = s[j];
-        s[j] = c;
-    }
-}
-
-// read words from file into per-length vectors
+// we backtracked to this slot.
+// 'ref by higher' positions are marked.
+// Prune, from the compatible list, words that match
+// the current word in these positions
 //
-void WORDS::read(const char* fname) {
-    FILE* f = fopen(fname, "r");
-    if (!f) {
-        printf("no word list %s\n", fname);
-        exit(1);
-    }
-    char buf[256];
-    while (fgets(buf, 256, f)) {
-        int len = strlen(buf)-1;
-        if (len >= MAX_LEN) continue;
-        buf[len] = 0;
-        if (have_vetoed_words[len]) {
-            if (vetoed_words[len].find(buf) != vetoed_words[len].end()) {
-                continue;
-            }
-        }
-        nwords[len]++;
-        words[len].push_back(strdup(buf));
-        if (reverse_words) {
-            reverse_str(buf);
-            words[len].push_back(strdup(buf));
-        }
-    }
-    fclose(f);
-}
-
-void WORDS::read_veto_file(const char* fname) {
-    FILE* f = fopen(fname, "r");
-    if (!f) {
-        printf("no veto file %s\n", fname);
-        exit(1);
-    }
-    char buf[256];
-    while (fgets(buf, 256, f)) {
-        int len = strlen(buf)-1;
-        if (len >= MAX_LEN) continue;
-        buf[len] = 0;
-        vetoed_words[len].insert(buf);
-        have_vetoed_words[len] = true;
-    }
-    fclose(f);
-}
-
-void WORDS::shuffle() {
-    for (int i=1; i<=MAX_LEN; i++) {
-        if (words[i].empty()) continue;
-        random_shuffle(words[i].begin(), words[i].end());
-    }
-}
-void WORDS::print_counts() {
-    printf("%d\n", max_len);
-    for (int i=1; i<=MAX_LEN; i++) {
-        printf("%d: %d\n", i, nwords[i]);
-    }
-}
-
-// does word match pattern?
-//
-inline bool match(int len, char *pattern, char* word) {
+void SLOT::prune_words() {
+    char pattern[MAX_LEN];
+    bool found = false;
     for (int i=0; i<len; i++) {
-        if (pattern[i]!='_' && pattern[i]!=word[i]) return false;
-    }
-    return true;
-}
-
-// get list of indices of words matching pattern
-//
-void get_matches(int len, char *pattern, WLIST &wlist, ILIST &ilist) {
-    for (unsigned int i=0; i<wlist.size(); i++) {
-        if (match(len, pattern, wlist[i])) {
-            ilist.push_back(i);
-        }
-    }
-}
-
-void show_matches(int len, WLIST &wlist, ILIST &ilist) {
-    for (int i: ilist) {
-        printf("%s\n", wlist[i]);
-    }
-}
-
-// for a list of words of given len,
-// cache a mapping of pattern -> word index list
-//
-struct PATTERN_CACHE {
-    int len;
-    WLIST *wlist;
-    unordered_map<string, ILIST*> map;
-
-    void init(int _len, WLIST *_wlist) {
-        len = _len;
-        wlist = _wlist;
-        map.clear();
-    }
-    ILIST* get_list(char* pattern) {
-        auto it = map.find(pattern);
-        if (it == map.end()) {
-            ILIST *ilist = new ILIST;
-            get_matches(len, pattern, *wlist, *ilist);
-            map[pattern] = ilist;
-            return ilist;
+        if (ref_by_higher[i]) {
+            pattern[i] = current_word[i];
+            found = true;
         } else {
-            return it->second;
+            pattern[i] = '_';
         }
     }
-};
-
-// for each word len, cache of pattern -> ILIST pairs
-//
-PATTERN_CACHE pattern_cache[MAX_LEN];
-
-void init_pattern_cache() {
-    for (int i=1; i<=MAX_LEN; i++) {
-        pattern_cache[i].init(i, &(words.words[i]));
-    }
+    if (!found) return;
 }
 
 // finalize a slot.
@@ -174,7 +56,7 @@ void SLOT::prepare_slot() {
     strcpy(filled_pattern, preset_pattern);
 
     if (strchr(filled_pattern, '_')) {
-        compatible_words = pattern_cache[len].get_list(filled_pattern);
+        compatible_words = pattern_cache[len].get_matches(filled_pattern);
         filled = false;
     } else {
         compatible_words = NULL;
@@ -461,7 +343,7 @@ void GRID::fill_slot(SLOT* slot) {
         SLOT *slot2 = link.other_slot;
         slot2->filled_pattern[link.other_pos] = slot->current_word[i];
         if (strchr(slot2->filled_pattern, '_')) {
-            slot2->compatible_words = pattern_cache[slot2->len].get_list(
+            slot2->compatible_words = pattern_cache[slot2->len].get_matches(
                 slot2->filled_pattern
             );
 #if VERBOSE_FILL_SLOT
@@ -549,7 +431,7 @@ void SLOT::remove_filled_word() {
         SLOT* slot2 = link.other_slot;
         if (slot2->filled) continue;
         slot2->filled_pattern[link.other_pos] = '_';
-        slot2->compatible_words = pattern_cache[slot2->len].get_list(
+        slot2->compatible_words = pattern_cache[slot2->len].get_matches(
             slot2->filled_pattern
         );
         if (slot2->compatible_words->empty()) {
@@ -631,7 +513,7 @@ int GRID::get_commands() {
             fprintf(f, "%s\n", buf+2);
             fclose(f);
             words.read_veto_file(veto_fname);
-            words.read(word_list);
+            words.read(word_list, reverse_words);
             retval = RESTART;
         } else {
             printf("bad command %s\n", buf);
@@ -724,7 +606,7 @@ int main(int argc, char** argv) {
     }
     solution_file = fopen(solution_fname, "wa");
     words.read_veto_file(veto_fname);
-    words.read(word_list);
+    words.read(word_list, reverse_words);
     words.shuffle();
     init_pattern_cache();
     make_grid(grid_file, grid);

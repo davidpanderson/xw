@@ -1,10 +1,7 @@
 all: barrier black_square
 
-SRC = xw.cpp
-HDR = xw.h
-
-xword: xword.cpp
-	g++ -g xword.cpp -o xword
+SRC = xw.cpp words.cpp
+HDR = xw.h words.h
 
 barrier: barrier.cpp $(SRC) $(HDR)
 	g++ -g barrier.cpp $(SRC) -lncurses -o barrier

@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <ncurses.h>
 
+#include "words.h"
+
 using namespace std;
 
 #define DEFAULT_WORD_LIST   "../words/words"
@@ -27,38 +29,6 @@ using namespace std;
 
 #define CHECK_ASSERTS           0
     // do sanity checks: conditions that should always hold
-
-
-///////////// WORD LISTS AND PATTERNS //////////////
-
-// a 'pattern' has '_' for wildcard.
-
-#define NULL_PATTERN (char*)"____________________________"
-
-#define MAX_LEN 29
-    // longest word plus 1 for NULL
-
-typedef vector<char*> WLIST;
-    // a list of words
-typedef unordered_set<string> WSET;
-    // a set of (vetoed) words; constant-time lookup
-typedef vector<int> ILIST;
-    // a list of indices into a WLIST (i.e. a subset of the words)
-
-struct WORDS {
-    WLIST words[MAX_LEN+1];
-    WSET vetoed_words[MAX_LEN+1];
-    bool have_vetoed_words[MAX_LEN+1];
-    int nwords[MAX_LEN+1];
-    int max_len;
-    void read(const char* word_list);
-    void read_veto_file(const char* fname);
-    void print_counts();
-    void shuffle();
-};
-
-extern WORDS words;
-extern void init_pattern_cache();
 
 ////////////////// SLOTS AND GRIDS ////////////////
 
@@ -105,6 +75,9 @@ struct SLOT {
     int dup_stack_level;
         // if we skipped a compatible word because it was already used,
         // the stack level of the slot that used it.
+    bool ref_by_higher[MAX_LEN];
+        // if we backtrack to here, was this cell part of
+        // any of the higher-level slots that we filled?
 
     int row, col;
     bool is_across;
@@ -146,6 +119,7 @@ struct SLOT {
     bool check_pattern(char* mp);
     void remove_filled_word();
     int top_affecting_level();
+    void prune_words();
 };
 
 struct GRID {

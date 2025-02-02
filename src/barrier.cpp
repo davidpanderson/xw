@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <ctype.h>
 #include <stdlib.h>
+
 #include "xw.h"
 
 #define MAX_SIZE 21
