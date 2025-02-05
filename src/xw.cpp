@@ -1,5 +1,7 @@
 #include <cstdio>
 #include <cstring>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include "xw.h"
 
@@ -25,6 +27,13 @@ const char* solution_fname = "solutions";
 FILE* solution_file;
 const char* word_list = DEFAULT_WORD_LIST;
 bool reverse_words = false;
+
+double get_cpu_time() {
+    struct rusage ru;
+    getrusage(RUSAGE_SELF, &ru);
+    return (double)ru.ru_utime.tv_sec + ((double)ru.ru_utime.tv_usec) / 1e6
+        + (double)ru.ru_stime.tv_sec + ((double)ru.ru_stime.tv_usec) / 1e6;
+}
 
 ///////////////// SLOT ///////////////////////
 
@@ -316,7 +325,7 @@ bool GRID::fill_next_slot() {
 #endif
         best->stack_level = filled_slots.size();
         filled_slots.push_back(best);
-        fill_slot(best);
+        install_word(best);
         return true;
     } else {
 #if VERBOSE_FILL_NEXT_SLOT
@@ -331,10 +340,11 @@ bool GRID::fill_next_slot() {
 // in the linked slot, update the pattern and the compatible_words list.
 // If the pattern is full, mark slot as filled and push
 //
-void GRID::fill_slot(SLOT* slot) {
+void GRID::install_word(SLOT* slot) {
 #if VERBOSE_FILL_SLOT
     printf("fill_slot(): filling %s in slot %d\n", slot->current_word, slot->num);
 #endif
+    nsteps++;
     for (int i=0; i<slot->len; i++) {
         LINK &link = slot->links[i];
         if (link.empty()) continue;
@@ -421,16 +431,20 @@ int SLOT::top_affecting_level() {
     return max_level;
 }
 
-// We're undoing a filled word.
+// Remove a filled word.
 // Update filled_patterns of unfilled crossing slots
 //
-void SLOT::remove_filled_word() {
+void SLOT::uninstall_word() {
     for (int i=0; i<len; i++) {
         LINK &link = links[i];
         if (link.empty()) continue;
         SLOT* slot2 = link.other_slot;
         if (slot2->filled) continue;
         slot2->filled_pattern[link.other_pos] = '_';
+
+        // update compatible word lists of crossing slots.
+        // fill_next_slot() assumes that these are up to date
+        //
         slot2->compatible_words = pattern_cache[slot2->len].get_matches(
             slot2->filled_pattern
         );
@@ -456,9 +470,9 @@ bool GRID::backtrack() {
 #if VERBOSE_BACKTRACK
         printf("backtrack() to slot %d\n", slot->num);
 #endif
-        slot->remove_filled_word();
+        slot->uninstall_word();
         if (slot->find_next_usable_word(this)) {
-            fill_slot(slot);
+            install_word(slot);
             return true;
         }
 
@@ -473,7 +487,7 @@ bool GRID::backtrack() {
         int level = slot->top_affecting_level();
         while (filled_slots.size() > level+1) {
             slot = filled_slots.back();
-            slot->remove_filled_word();
+            slot->uninstall_word();
             slot->filled = false;
             filled_slots.pop_back();
         }
@@ -523,6 +537,7 @@ int GRID::get_commands() {
 
 bool GRID::find_solutions(bool curses, double period) {
     static int count = 0;
+    double start_cpu_time = get_cpu_time();
     while (1) {
         if (filled_slots.size() + npreset_slots == slots.size()) {
             // we have a solution
@@ -533,6 +548,8 @@ bool GRID::find_solutions(bool curses, double period) {
             }
             printf("\nSolution found:\n");
             print_grid(*this, false, stdout);
+            printf("CPU time: %f\n", get_cpu_time() - start_cpu_time);
+            printf("Steps: %d\n", nsteps);
             switch (get_commands()) {
             case CONT:
                 backtrack();

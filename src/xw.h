@@ -117,7 +117,7 @@ struct SLOT {
     bool find_next_usable_word(GRID*);
     bool letter_compatible(int pos, char c);
     bool check_pattern(char* mp);
-    void remove_filled_word();
+    void uninstall_word();
     int top_affecting_level();
     void prune_words();
 };
@@ -128,7 +128,12 @@ struct GRID {
     int npreset_slots;
         // number of preset slots.
         // these are marked as filled but not pushed on the filled stack
+    int nsteps;
+        // total number of words installed (for performance testing)
 
+    GRID() {
+        nsteps = 0;
+    }
     SLOT* add_slot(SLOT* slot) {
         slots.push_back(slot);
         return slot;
@@ -178,7 +183,7 @@ struct GRID {
 
     bool fill_next_slot();
     bool backtrack();
-    void fill_slot(SLOT*);
+    void install_word(SLOT*);
     bool find_solutions(bool curses, double period);
     void restart();
     int get_commands();

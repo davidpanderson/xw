@@ -84,27 +84,64 @@ void show_matches(int len, WLIST &wlist, ILIST &ilist) {
 }
 
 // PATTERN_CACHE
+// (not actually a cache since we never flush anything)
 
 // 'pattern': a word in which some or all positions are undetermined
 // (represented by _)
 
-// get list of indices of words matching pattern; memoize
+// Get list of words matching pattern.
+// If not in cache, compute and store in cache
 //
 ILIST* PATTERN_CACHE::get_matches(char* pattern) {
     auto it = map.find(pattern);
-    if (it == map.end()) {
-        ILIST *ilist = new ILIST;
-        //get_matches(len, pattern, *wlist, *ilist);
-        for (unsigned int i=0; i<wlist->size(); i++) {
-            if (match(len, pattern, (*wlist)[i])) {
-                ilist->push_back(i);
-            }
-        }
-        map[pattern] = ilist;
-        return ilist;
-    } else {
+    if (it != map.end()) {
         return it->second;
     }
+    ILIST *ilist = new ILIST;
+    //get_matches(len, pattern, *wlist, *ilist);
+    for (unsigned int i=0; i<wlist->size(); i++) {
+        if (match(len, pattern, (*wlist)[i])) {
+            ilist->push_back(i);
+        }
+    }
+    map[pattern] = ilist;
+    return ilist;
+}
+
+// From the list corresponding to prune_signature,
+// remove words that match prune_pattern.
+// Return the resulting list, and memoize the result
+//
+ILIST* PATTERN_CACHE::get_matches_prune(
+    int cur_ind, string &prune_signature, char* prune_pattern, int &new_pos
+) {
+    string sig = prune_signature + prune_pattern;
+    auto it = map.find(sig);
+    if (it != map.end()) {
+        return it->second;
+    }
+    it = map.find(prune_signature);
+    if (it == map.end()) {
+        fprintf(stderr, "signature %s not found\n", prune_signature.c_str());
+        exit(1);
+    }
+    ILIST* ilist = it->second;
+    ILIST *ilist2 = new ILIST;
+    bool found = false;
+    for (int i: *ilist) {
+        if (!match(len, prune_pattern, (*wlist)[i])) {
+            if (found) {
+                new_pos = ilist2->size();
+                found = false;
+            }
+            ilist2->push_back(i);
+            if (i == cur_ind) {
+                found = true;
+            }
+        }
+    }
+    map[sig] = ilist2;
+    return ilist2;
 }
 
 PATTERN_CACHE pattern_cache[MAX_LEN];

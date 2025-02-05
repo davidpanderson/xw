@@ -47,7 +47,9 @@ struct PATTERN_CACHE {
         map.clear();
     }
     ILIST* get_matches(char* pattern);
-
+    ILIST* get_matches_prune(
+        int cur_pos, string &prune_signature, char* prune_pattern, int& new_pos
+    );
 };
 extern PATTERN_CACHE pattern_cache[MAX_LEN];
 
