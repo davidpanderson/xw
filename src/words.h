@@ -1,3 +1,6 @@
+#ifndef WORDS_H
+#define WORDS_H
+
 #include <vector>
 #include <map>
 #include <unordered_set>
@@ -48,7 +51,8 @@ struct PATTERN_CACHE {
     }
     ILIST* get_matches(char* pattern);
     ILIST* get_matches_prune(
-        int cur_pos, string &prune_signature, char* prune_pattern, int& new_pos
+        ILIST* ilist, int& next_index,
+        string &prune_signature, char* prune_pattern
     );
 };
 extern PATTERN_CACHE pattern_cache[MAX_LEN];
@@ -65,3 +69,4 @@ inline bool match(int len, char *pattern, char* word) {
 extern WORDS words;
 extern void init_pattern_cache();
 
+#endif

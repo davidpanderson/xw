@@ -1,3 +1,6 @@
+#ifndef XW_H
+#define XW_H
+
 #include <cstring>
 #include <vector>
 #include <unordered_set>
@@ -11,21 +14,24 @@ using namespace std;
 
 #define DEFAULT_WORD_LIST   "../words/words"
 
+#define PRUNE       0
+
 #define NO_DUPS     1
     // don't allow duplicate words
 
-#define VERBOSE_INIT            0
-    // initialization of grid
-#define VERBOSE_STEP_STATE      0
-    // show detailed state after each step
+#define VERBOSE                 1
+    // at start, show list of slots (num, across/down, row/col, len)
+    // show backtrack
+    // show slot push/pop
+    // show word install/uninstall
+    // print grid after each word install
 #define VERBOSE_NEXT_USABLE     0
-    // SLOT::find_next_usable_word()
-#define VERBOSE_FILL_NEXT_SLOT  0
-    // GRID::fill_next_slot()
-#define VERBOSE_FILL_SLOT       0
-    // GRID::fill_slot()
-#define VERBOSE_BACKTRACK       0
-    // GRID::backtrack()
+    // show each word tested
+    // if no words, show check masks
+#define VERBOSE_PUSH_NEXT_SLOT  0
+    // for unfilled slots, show word count and filled_pattern
+#define VERBOSE_PRUNE           0
+    // on backtrack, show pruning info
 
 #define CHECK_ASSERTS           0
     // do sanity checks: conditions that should always hold
@@ -49,8 +55,6 @@ struct LINK {
     }
 };
 
-typedef enum {LETTER_UNKNOWN, LETTER_OK, LETTER_NOT_OK} LETTER_STATUS;
-
 static int slot_num = 0;
 
 struct SLOT {
@@ -70,6 +74,7 @@ struct SLOT {
         // if filled, next compatible word to try
     char current_word[MAX_LEN];
         // if filled, current word
+    string prune_signature;
     int stack_level;
         // if filled, the level on the filled stack
     int dup_stack_level;
@@ -77,11 +82,13 @@ struct SLOT {
         // the stack level of the slot that used it.
     bool ref_by_higher[MAX_LEN];
         // if we backtrack to here, was this cell part of
-        // any of the higher-level slots that we filled?
+        // any of the higher-level slots that we pushed?
 
     int row, col;
     bool is_across;
         // for planar grids
+    char name[16];
+        // e.g. A(2,0)
 
     // for each position and each letter (a-z)
     // keep track of whether putting the letter in that position
@@ -119,7 +126,7 @@ struct SLOT {
     bool check_pattern(char* mp);
     void uninstall_word();
     int top_affecting_level();
-    void prune_words();
+    bool prune();
 };
 
 struct GRID {
@@ -134,9 +141,8 @@ struct GRID {
     GRID() {
         nsteps = 0;
     }
-    SLOT* add_slot(SLOT* slot) {
+    void add_slot(SLOT* slot) {
         slots.push_back(slot);
-        return slot;
     }
     void add_link(SLOT *slot1, int pos1, SLOT *slot2, int pos2) {
         char c1 = slot1->filled_pattern[pos1];
@@ -181,10 +187,12 @@ struct GRID {
         }
     }
 
-    bool fill_next_slot();
+    bool push_next_slot();
     bool backtrack();
     void install_word(SLOT*);
     bool find_solutions(bool curses, double period);
     void restart();
     int get_commands();
 };
+
+#endif

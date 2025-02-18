@@ -27,6 +27,8 @@ const char* solution_fname = "solutions";
 FILE* solution_file;
 const char* word_list = DEFAULT_WORD_LIST;
 bool reverse_words = false;
+bool backjump = false;
+bool prune = false;
 
 double get_cpu_time() {
     struct rusage ru;
@@ -37,26 +39,36 @@ double get_cpu_time() {
 
 ///////////////// SLOT ///////////////////////
 
+#if PRUNE
 // we backtracked to this slot.
 // 'ref by higher' positions are marked.
 // Prune, from the compatible list, words that match
 // the current word in these positions
 //
-void SLOT::prune_words() {
-    char pattern[MAX_LEN];
+bool SLOT::prune() {
+    char prune_pattern[MAX_LEN];
     bool found = false;
+    strcpy(prune_pattern, NULL_PATTERN);
     for (int i=0; i<len; i++) {
         if (ref_by_higher[i]) {
-            pattern[i] = current_word[i];
+            prune_pattern[i] = current_word[i];
             found = true;
-        } else {
-            pattern[i] = '_';
         }
     }
-    if (!found) return;
-}
+    prune_pattern[len] = 0;
+#if VERBOSE_PRUNE
+    printf("slot %s: prune pattern %s\n", name, prune_pattern);
+#endif
+    if (!found) return false;
 
-// finalize a slot.
+    compatible_words = pattern_cache[len].get_matches_prune(
+        compatible_words, next_word_index, prune_signature, prune_pattern
+    );
+    return true;
+}
+#endif
+
+// Initialize a slot.
 // get initial list of compatible words.
 // If slot is preset, mark as filled
 //
@@ -72,6 +84,7 @@ void SLOT::prepare_slot() {
         strcpy(current_word, filled_pattern);
         filled = true;
     }
+    sprintf(name, "%c(%d,%d)", is_across?'A':'D', row, col);
 }
 
 // debugging
@@ -149,7 +162,7 @@ void SLOT::print_state(bool show_links) {
 //      current word
 //      a 'next index' into compatible_words
 //
-// fill_next_slot() picks an unfilled slot S
+// push_next_slot() picks an unfilled slot S
 //      (currently, the one with fewest compatible words).
 //      it scans its compatible_words list for an word that's 'usable'
 //          (i.e. other unfilled slots would have compatible words)
@@ -170,18 +183,22 @@ void SLOT::print_state(bool show_links) {
 //                  update filled_patterns of unfilled slots to include new word
 //                  return
 
-// Scan compatible words for the given slot, starting from current index.
+// Scan compatible words for the given slot, starting from next_word_index.
 // If find one that's usable (crossing words still have compat words)
-// install it and return true
+//      copy it to current_word
+//      update next_word_index
+//      return true
 //
+// Efficiency trick:
 // For each linked position and each possible letter (a-z) either
 // - we haven't checked it yet
 // - we checked and it's OK (the linked slot had compatible words)
 // - we checked and it's not OK
 //
 // so when scanning words:
-//  if any letter not checked, check it for all linked slots
-//  if any letter not OK, skip word
+//  for each letter
+//      if not checked, check it
+//      if not OK, skip word
 //
 bool SLOT::find_next_usable_word(GRID *grid) {
     if (!compatible_words) return false;
@@ -262,41 +279,50 @@ bool SLOT::letter_compatible(int pos, char c) {
     return slot2->check_pattern(pattern2);
 }
 
-// mp differs from current mpattern by 1 additional letter.
+// p differs from current filled pattern by 1 additional letter.
 // see if this slot has an compatible word matching this
 // (only need to check words compatible with current filled_pattern)
 //
-bool SLOT::check_pattern(char* mp) {
+bool SLOT::check_pattern(char* p) {
+#if PRUNE
+    for (int i=0; i<len; i++) {
+        LINK &link = links[i];
+        if (link.empty()) continue;
+        SLOT* slot2 = link.other_slot;
+        if (!slot2->filled) continue;
+        slot2->ref_by_higher[link.other_pos] = true;
+    }
+#endif
     for (int i: *compatible_words) {
-        if (match(len, mp, words.words[len][i])) {
+        if (match(len, p, words.words[len][i])) {
             return true;
         }
     }
     return false;
 }
 
-// Find the unfilled slot with fewest compatible words
-// if any of these are usable,
+// Find the unfilled slot with fewest compatible words.
+// If any of these words are usable,
 // mark slot as filled, push on stack, return true
 // Else return false (need to backtrack)
 // precondition:
 //      there are unfilled slots
 //      compat lists of unfilled slots are updated and nonempty
 //
-bool GRID::fill_next_slot() {
-    // find unfilled slot with smallest compat set
+bool GRID::push_next_slot() {
+    // find unfilled slot with smallest compatible set
     //
     size_t nbest = 9999999;
     SLOT* best=0;
-#if VERBOSE_FILL_NEXT_SLOT
-    printf("fill_next_slot():\n");
+#if VERBOSE_PUSH_NEXT_SLOT
+    printf("push_next_slot():\n");
 #endif
     for (SLOT* slot: slots) {
         if (slot->filled) continue;
         size_t n = slot->compatible_words->size();
-#if VERBOSE_FILL_NEXT_SLOT
-        printf("   slot %d, %ld compatible words\n",
-            slot->num, n
+#if VERBOSE_PUSH_NEXT_SLOT
+        printf("   slot %s, %ld compatible words\n",
+            slot->name, n
         );
 #endif
         if (n < nbest) {
@@ -311,10 +337,23 @@ bool GRID::fill_next_slot() {
     }
 #endif
 
+#if PRUNE
+    // set ref_by_higher in crossed filled slots
+    //
+    for (int i=0; i<best->len; i++) {
+        best->ref_by_higher[i] = false;
+        LINK &link = best->links[i];
+        if (link.empty()) continue;
+        SLOT *slot2 = link.other_slot;
+        if (!slot2->filled) continue;
+        slot2->ref_by_higher[link.other_pos] = true;
+    }
+#endif
+
     best->next_word_index = 0;
     if (best->find_next_usable_word(this)) {
-#if VERBOSE_FILL_NEXT_SLOT
-        printf("   slot %d has usable words; pushing on filled stack\n", best->num);
+#if VERBOSE_PUSH_NEXT_SLOT
+        printf("   slot %s has usable words\n", best->name);
 #endif
         best->filled = true;
 #if CHECK_ASSERTS
@@ -323,13 +362,20 @@ bool GRID::fill_next_slot() {
             exit(1);
         }
 #endif
+        // push slot on filled stack
+        //
         best->stack_level = filled_slots.size();
         filled_slots.push_back(best);
+        best->prune_signature = best->filled_pattern;
+#if VERBOSE
+        printf("pushing slot %s\n", best->name);
+#endif
+
         install_word(best);
         return true;
     } else {
-#if VERBOSE_FILL_NEXT_SLOT
-        printf("   slot %d has no usable words\n", best->num);
+#if VERBOSE
+        printf("slot %s has no usable words\n", best->name);
 #endif
         return false;
     }
@@ -341,8 +387,8 @@ bool GRID::fill_next_slot() {
 // If the pattern is full, mark slot as filled and push
 //
 void GRID::install_word(SLOT* slot) {
-#if VERBOSE_FILL_SLOT
-    printf("fill_slot(): filling %s in slot %d\n", slot->current_word, slot->num);
+#if VERBOSE
+    printf("installing %s in slot %s\n", slot->current_word, slot->name);
 #endif
     nsteps++;
     for (int i=0; i<slot->len; i++) {
@@ -356,12 +402,6 @@ void GRID::install_word(SLOT* slot) {
             slot2->compatible_words = pattern_cache[slot2->len].get_matches(
                 slot2->filled_pattern
             );
-#if VERBOSE_FILL_SLOT
-            printf("   slot %d now has %ld compat words for pattern %s\n",
-                slot2->num, slot2->compatible_words->size(),
-                slot2->filled_pattern
-            );
-#endif
             if (slot2->compatible_words->empty()) {
                 printf("empty compat list for slot %d pattern %s\n",
                     slot2->num, slot2->filled_pattern
@@ -376,9 +416,9 @@ void GRID::install_word(SLOT* slot) {
             }
 #endif
             // other slot is now filled
-#if VERBOSE_FILL_SLOT
-            printf("   slot %d is now filled: %s\n",
-                slot2->num, slot2->filled_pattern
+#if VERBOSE
+            printf("slot %s is now also filled: %s\n",
+                slot2->name, slot2->filled_pattern
             );
 #endif
             slot2->compatible_words = NULL;
@@ -388,6 +428,9 @@ void GRID::install_word(SLOT* slot) {
             filled_slots.push_back(slot2);
         }
     }
+#if VERBOSE
+    print_grid(*this, false, stdout);
+#endif
 }
 
 // We just popped this slot S from the stack.
@@ -435,6 +478,9 @@ int SLOT::top_affecting_level() {
 // Update filled_patterns of unfilled crossing slots
 //
 void SLOT::uninstall_word() {
+#if VERBOSE
+    printf("uninstalling %s from slot %s\n", current_word, name);
+#endif
     for (int i=0; i<len; i++) {
         LINK &link = links[i];
         if (link.empty()) continue;
@@ -443,7 +489,7 @@ void SLOT::uninstall_word() {
         slot2->filled_pattern[link.other_pos] = '_';
 
         // update compatible word lists of crossing slots.
-        // fill_next_slot() assumes that these are up to date
+        // push_next_slot() assumes that these are up to date
         //
         slot2->compatible_words = pattern_cache[slot2->len].get_matches(
             slot2->filled_pattern
@@ -468,32 +514,57 @@ bool GRID::backtrack() {
     while (1) {
         SLOT *slot = filled_slots.back();
 #if VERBOSE_BACKTRACK
-        printf("backtrack() to slot %d\n", slot->num);
+        printf("backtracking to slot %d\n", slot->num);
 #endif
+
         slot->uninstall_word();
+        if (!slot->compatible_words) {
+            goto pop;
+        }
+#if PRUNE
+        if (!slot->prune()) {
+#if VERBOSE
+            printf("popping slot %s because no crossings from higher slots\n",
+                slot->name
+            );
+#endif
+            goto pop;
+        }
+#endif
+
         if (slot->find_next_usable_word(this)) {
             install_word(slot);
             return true;
         }
 
-#if VERBOSE_BACKTRACK
-        printf("slot %d has no more usable words; popping\n", slot->num);
+#if VERBOSE
+        printf("popping slot %s: no more usable words\n", slot->name);
 #endif
+pop:
         filled_slots.pop_back();
         slot->filled = false;
         if (filled_slots.empty()) {
             return false;
         }
-        int level = slot->top_affecting_level();
-        while (filled_slots.size() > level+1) {
-            slot = filled_slots.back();
-            slot->uninstall_word();
-            slot->filled = false;
-            filled_slots.pop_back();
+        if (backjump) {
+            int level = slot->top_affecting_level();
+#if VERBOSE
+            printf("backjumping to level %d\n", level);
+#endif
+            while (filled_slots.size() > level+1) {
+                slot = filled_slots.back();
+                slot->uninstall_word();
+                slot->filled = false;
+                filled_slots.pop_back();
+#if VERBOSE
+                printf("popping slot %s: backjump\n", slot->name);
+#endif
+            }
         }
     }
 }
 
+// returns from get_commands()
 #define CONT    1
 #define RESTART 2
 #define EXIT    3
@@ -538,6 +609,9 @@ int GRID::get_commands() {
 bool GRID::find_solutions(bool curses, double period) {
     static int count = 0;
     double start_cpu_time = get_cpu_time();
+#if VERBOSE
+    print_state();
+#endif
     while (1) {
         if (filled_slots.size() + npreset_slots == slots.size()) {
             // we have a solution
@@ -550,6 +624,9 @@ bool GRID::find_solutions(bool curses, double period) {
             print_grid(*this, false, stdout);
             printf("CPU time: %f\n", get_cpu_time() - start_cpu_time);
             printf("Steps: %d\n", nsteps);
+#if VERBOSE
+            exit(0);
+#endif
             switch (get_commands()) {
             case CONT:
                 backtrack();
@@ -565,18 +642,17 @@ bool GRID::find_solutions(bool curses, double period) {
             }
             continue;
         }
-        if (!fill_next_slot()) {
+        if (!push_next_slot()) {
             if (!backtrack()) {
                 break;
             }
         }
+#if not(VERBOSE)
         count++;
         if (count == 10000) {
             count = 0;
             print_grid(*this, curses, stdout);
         }
-#if VERBOSE_STEP_STATE
-        print_state();
 #endif
     }
     printf("no more solutions\n");
@@ -598,6 +674,9 @@ int main(int argc, char** argv) {
     bool show_grid = false;
     double period=0;
     const char* grid_file = NULL;
+#if VERBOSE
+    curses = false;
+#endif
 
     for (int i=1; i<argc; i++) {
         if (!strcmp(argv[i], "--word_list")) {
@@ -616,6 +695,8 @@ int main(int argc, char** argv) {
             veto_fname = argv[++i];
         } else if (!strcmp(argv[i], "--solution_file")) {
             solution_fname = argv[++i];
+        } else if (!strcmp(argv[i], "--backjump")) {
+            backjump = true;
         } else {
             fprintf(stderr, "unknown option '%s'\n", argv[i]);
             exit(1);
@@ -624,7 +705,7 @@ int main(int argc, char** argv) {
     solution_file = fopen(solution_fname, "wa");
     words.read_veto_file(veto_fname);
     words.read(word_list, reverse_words);
-    words.shuffle();
+    //words.shuffle();
     init_pattern_cache();
     make_grid(grid_file, grid);
     grid.prepare_grid();

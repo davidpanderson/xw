@@ -2,6 +2,7 @@
 #include <cstring>
 #include <algorithm>
 
+#include "xw.h"
 #include "words.h"
 
 WORDS words;
@@ -51,7 +52,7 @@ void WORDS::read_veto_file(const char* fname) {
     FILE* f = fopen(fname, "r");
     if (!f) {
         printf("no veto file %s\n", fname);
-        exit(1);
+        return;
     }
     char buf[256];
     while (fgets(buf, 256, f)) {
@@ -70,6 +71,7 @@ void WORDS::shuffle() {
         random_shuffle(words[i].begin(), words[i].end());
     }
 }
+
 void WORDS::print_counts() {
     printf("%d\n", max_len);
     for (int i=1; i<=MAX_LEN; i++) {
@@ -85,6 +87,7 @@ void show_matches(int len, WLIST &wlist, ILIST &ilist) {
 
 // PATTERN_CACHE
 // (not actually a cache since we never flush anything)
+// maps patterns to the list of words matching that pattern.
 
 // 'pattern': a word in which some or all positions are undetermined
 // (represented by _)
@@ -113,34 +116,60 @@ ILIST* PATTERN_CACHE::get_matches(char* pattern) {
 // Return the resulting list, and memoize the result
 //
 ILIST* PATTERN_CACHE::get_matches_prune(
-    int cur_ind, string &prune_signature, char* prune_pattern, int &new_pos
+    ILIST *ilist, int& next_index,
+    string &prune_signature, char* prune_pattern
 ) {
+    int cur_index = next_index-1;
+#if VERBOSE_PRUNE
+    printf("get_matches_prune():\n"
+        "   next_index %d\n"
+        "   prune_signature: %s\n"
+        "   prune_pattern: %s\n",
+        cur_index, prune_signature.c_str(), prune_pattern
+    );
+#endif
+
     string sig = prune_signature + prune_pattern;
     auto it = map.find(sig);
     if (it != map.end()) {
         return it->second;
     }
-    it = map.find(prune_signature);
-    if (it == map.end()) {
-        fprintf(stderr, "signature %s not found\n", prune_signature.c_str());
-        exit(1);
-    }
-    ILIST* ilist = it->second;
     ILIST *ilist2 = new ILIST;
     bool found = false;
-    for (int i: *ilist) {
-        if (!match(len, prune_pattern, (*wlist)[i])) {
-            if (found) {
-                new_pos = ilist2->size();
-                found = false;
-            }
+
+    // make list of words that don't match the prune pattern.
+    // cur_index will always match.
+    // new_index is index of 1st word after cur
+    //
+    for (int j=0; j<ilist->size(); j++) {
+        if (j == cur_index) {
+            next_index = ilist2->size();
+            continue;
+        }
+        int i = (*ilist)[j];
+        if (match(len, prune_pattern, (*wlist)[i])) {
+#if VERBOSE_PRUNE
+            printf("   pruned %s\n", (*wlist)[i]);
+#endif
+            found = true;
+        } else {
             ilist2->push_back(i);
-            if (i == cur_ind) {
-                found = true;
-            }
         }
     }
+    if (!found) {
+#if VERBOSE_PRUNE
+        printf("prune: no matching words found\n");
+#endif
+        delete ilist2;
+        return ilist;
+    }
+    prune_signature += prune_pattern;
     map[sig] = ilist2;
+#if VERBOSE_PRUNE
+    printf("   pruned from %d to %d words, index old %d new %d\n",
+        (int)ilist->size(), (int)ilist2->size(), cur_index, next_index
+    );
+#endif
     return ilist2;
 }
 
@@ -151,4 +180,3 @@ void init_pattern_cache() {
         pattern_cache[i].init(i, &(words.words[i]));
     }
 }
-
