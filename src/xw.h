@@ -12,26 +12,7 @@
 
 using namespace std;
 
-#define DEFAULT_WORD_LIST   "../words/words"
-
-#define PRUNE       0
-
-#define NO_DUPS     1
-    // don't allow duplicate words
-
-#define VERBOSE                 1
-    // at start, show list of slots (num, across/down, row/col, len)
-    // show backtrack
-    // show slot push/pop
-    // show word install/uninstall
-    // print grid after each word install
-#define VERBOSE_NEXT_USABLE     0
-    // show each word tested
-    // if no words, show check masks
-#define VERBOSE_PUSH_NEXT_SLOT  0
-    // for unfilled slots, show word count and filled_pattern
-#define VERBOSE_PRUNE           0
-    // on backtrack, show pruning info
+extern bool verbose_prune;
 
 #define CHECK_ASSERTS           0
     // do sanity checks: conditions that should always hold

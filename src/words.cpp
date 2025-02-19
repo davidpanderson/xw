@@ -120,14 +120,14 @@ ILIST* PATTERN_CACHE::get_matches_prune(
     string &prune_signature, char* prune_pattern
 ) {
     int cur_index = next_index-1;
-#if VERBOSE_PRUNE
-    printf("get_matches_prune():\n"
-        "   next_index %d\n"
-        "   prune_signature: %s\n"
-        "   prune_pattern: %s\n",
-        cur_index, prune_signature.c_str(), prune_pattern
-    );
-#endif
+    if (verbose_prune) {
+        printf("get_matches_prune():\n"
+            "   next_index %d\n"
+            "   prune_signature: %s\n"
+            "   prune_pattern: %s\n",
+            cur_index, prune_signature.c_str(), prune_pattern
+        );
+    }
 
     string sig = prune_signature + prune_pattern;
     auto it = map.find(sig);
@@ -148,28 +148,28 @@ ILIST* PATTERN_CACHE::get_matches_prune(
         }
         int i = (*ilist)[j];
         if (match(len, prune_pattern, (*wlist)[i])) {
-#if VERBOSE_PRUNE
-            printf("   pruned %s\n", (*wlist)[i]);
-#endif
+            if (verbose_prune) {
+                printf("   pruned %s\n", (*wlist)[i]);
+            }
             found = true;
         } else {
             ilist2->push_back(i);
         }
     }
     if (!found) {
-#if VERBOSE_PRUNE
-        printf("prune: no matching words found\n");
-#endif
+        if (verbose_prune) {
+            printf("prune: no matching words found\n");
+        }
         delete ilist2;
         return ilist;
     }
     prune_signature += prune_pattern;
     map[sig] = ilist2;
-#if VERBOSE_PRUNE
-    printf("   pruned from %d to %d words, index old %d new %d\n",
-        (int)ilist->size(), (int)ilist2->size(), cur_index, next_index
-    );
-#endif
+    if (verbose_prune) {
+        printf("   pruned from %d to %d words, index old %d new %d\n",
+            (int)ilist->size(), (int)ilist2->size(), cur_index, next_index
+        );
+    }
     return ilist2;
 }
 

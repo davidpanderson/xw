@@ -1,14 +1,13 @@
+// xw: fill generalized crossword puzzle grids.
+// Enumerates all solutions for a given grid.
+// copyright (C) 2025 David P. Anderson
+
 #include <cstdio>
 #include <cstring>
 #include <sys/time.h>
 #include <sys/resource.h>
 
 #include "xw.h"
-
-// copyright (C) 2025 David P. Anderson
-
-// xw: fill generalized crossword puzzle grids
-// This program enumerates all solutions for a given grid.
 
 // It must be linked with these functions:
 
@@ -22,13 +21,35 @@ extern void print_grid(GRID&, bool curses, FILE *f);
     // if curses is true, use curses
     // else write to the given FILE*
 
+// files
 const char* veto_fname = "vetoed_words";
 const char* solution_fname = "solutions";
-FILE* solution_file;
-const char* word_list = DEFAULT_WORD_LIST;
+const char* word_list = "../words/words";
+
+// algorithm
+bool do_prune = false;
+bool do_backjump = false;
+
+// debugging output
+bool verbose = false;
+    // at start, show list of slots (num, across/down, row/col, len)
+    // show backtrack
+    // show slot push/pop
+    // show word install/uninstall
+    // print grid after each word install
+bool verbose_next_word = false;
+    // show each word tested
+    // if no words, show check masks
+bool verbose_next_slot = false;
+    // for unfilled slots, show word count and filled_pattern
+bool verbose_prune = false;
+    // on backtrack, show pruning info
+
+// behavior
 bool reverse_words = false;
-bool backjump = false;
-bool prune = false;
+bool allow_dups = false;
+
+FILE* solution_file;
 
 double get_cpu_time() {
     struct rusage ru;
@@ -39,7 +60,6 @@ double get_cpu_time() {
 
 ///////////////// SLOT ///////////////////////
 
-#if PRUNE
 // we backtracked to this slot.
 // 'ref by higher' positions are marked.
 // Prune, from the compatible list, words that match
@@ -56,9 +76,9 @@ bool SLOT::prune() {
         }
     }
     prune_pattern[len] = 0;
-#if VERBOSE_PRUNE
-    printf("slot %s: prune pattern %s\n", name, prune_pattern);
-#endif
+    if (verbose_prune) {
+        printf("slot %s: prune pattern %s\n", name, prune_pattern);
+    }
     if (!found) return false;
 
     compatible_words = pattern_cache[len].get_matches_prune(
@@ -66,7 +86,6 @@ bool SLOT::prune() {
     );
     return true;
 }
-#endif
 
 // Initialize a slot.
 // get initial list of compatible words.
@@ -206,18 +225,18 @@ bool SLOT::find_next_usable_word(GRID *grid) {
         clear_usable_letter_checked();
     }
     int n = compatible_words->size();
-#if VERBOSE_NEXT_USABLE
-    printf("find_next_usable_word() slot %d: %d of %d\n",
-        num, next_word_index, n
-    );
-    printf("   stack pattern %s\n", filled_pattern);
-#endif
+    if (verbose_next_word) {
+        printf("find_next_usable_word() slot %d: %d of %d\n",
+            num, next_word_index, n
+        );
+        printf("   stack pattern %s\n", filled_pattern);
+    }
     while (next_word_index < n) {
         int ind = (*compatible_words)[next_word_index++];
         char* w = words.words[len][ind];
-#if VERBOSE_NEXT_USABLE
-        printf("   checking %s\n", w);
-#endif
+        if (verbose_next_word) {
+            printf("   checking %s\n", w);
+        }
         bool usable = true;
         for (int i=0; i<len; i++) {
             if (links[i].empty()) continue;
@@ -242,28 +261,28 @@ bool SLOT::find_next_usable_word(GRID *grid) {
                 break;
             }
         }
-#if NO_DUPS
-        for (SLOT *s2: grid->filled_slots) {
-            if (!strcmp(w, s2->current_word)) {
-                usable = false;
-                dup_stack_level = s2->stack_level;
-                break;
+        if (!allow_dups) {
+            for (SLOT *s2: grid->filled_slots) {
+                if (!strcmp(w, s2->current_word)) {
+                    usable = false;
+                    dup_stack_level = s2->stack_level;
+                    break;
+                }
             }
         }
-#endif
         if (usable) {
-#if VERBOSE_NEXT_USABLE
-            printf("   %s is usable for slot %d\n", w, num);
-            //print_usable();
-#endif
+            if (verbose_next_word) {
+                printf("   %s is usable for slot %d\n", w, num);
+                //print_usable();
+            }
             strcpy(current_word, w);
             return true;
         }
     }
-#if VERBOSE_NEXT_USABLE
-    printf("   no compat words are usable for slot %d\n", num);
-    print_usable();
-#endif
+    if (verbose_next_word) {
+        printf("   no compat words are usable for slot %d\n", num);
+        print_usable();
+    }
     return false;
 }
 
@@ -284,15 +303,15 @@ bool SLOT::letter_compatible(int pos, char c) {
 // (only need to check words compatible with current filled_pattern)
 //
 bool SLOT::check_pattern(char* p) {
-#if PRUNE
-    for (int i=0; i<len; i++) {
-        LINK &link = links[i];
-        if (link.empty()) continue;
-        SLOT* slot2 = link.other_slot;
-        if (!slot2->filled) continue;
-        slot2->ref_by_higher[link.other_pos] = true;
+    if (do_prune) {
+        for (int i=0; i<len; i++) {
+            LINK &link = links[i];
+            if (link.empty()) continue;
+            SLOT* slot2 = link.other_slot;
+            if (!slot2->filled) continue;
+            slot2->ref_by_higher[link.other_pos] = true;
+        }
     }
-#endif
     for (int i: *compatible_words) {
         if (match(len, p, words.words[len][i])) {
             return true;
@@ -314,17 +333,17 @@ bool GRID::push_next_slot() {
     //
     size_t nbest = 9999999;
     SLOT* best=0;
-#if VERBOSE_PUSH_NEXT_SLOT
-    printf("push_next_slot():\n");
-#endif
+    if (verbose_next_slot) {
+        printf("push_next_slot():\n");
+    }
     for (SLOT* slot: slots) {
         if (slot->filled) continue;
         size_t n = slot->compatible_words->size();
-#if VERBOSE_PUSH_NEXT_SLOT
-        printf("   slot %s, %ld compatible words\n",
-            slot->name, n
-        );
-#endif
+        if (verbose_next_slot) {
+            printf("   slot %s, %ld compatible words\n",
+                slot->name, n
+            );
+        }
         if (n < nbest) {
             nbest = n;
             best = slot;
@@ -337,24 +356,24 @@ bool GRID::push_next_slot() {
     }
 #endif
 
-#if PRUNE
-    // set ref_by_higher in crossed filled slots
-    //
-    for (int i=0; i<best->len; i++) {
-        best->ref_by_higher[i] = false;
-        LINK &link = best->links[i];
-        if (link.empty()) continue;
-        SLOT *slot2 = link.other_slot;
-        if (!slot2->filled) continue;
-        slot2->ref_by_higher[link.other_pos] = true;
+    if (do_prune) {
+        // set ref_by_higher in crossed filled slots
+        //
+        for (int i=0; i<best->len; i++) {
+            best->ref_by_higher[i] = false;
+            LINK &link = best->links[i];
+            if (link.empty()) continue;
+            SLOT *slot2 = link.other_slot;
+            if (!slot2->filled) continue;
+            slot2->ref_by_higher[link.other_pos] = true;
+        }
     }
-#endif
 
     best->next_word_index = 0;
     if (best->find_next_usable_word(this)) {
-#if VERBOSE_PUSH_NEXT_SLOT
-        printf("   slot %s has usable words\n", best->name);
-#endif
+        if (verbose_next_slot) {
+            printf("   slot %s has usable words\n", best->name);
+        }
         best->filled = true;
 #if CHECK_ASSERTS
         if (find(filled_slots.begin(), filled_slots.end(), best) != filled_slots.end()) {
@@ -367,16 +386,16 @@ bool GRID::push_next_slot() {
         best->stack_level = filled_slots.size();
         filled_slots.push_back(best);
         best->prune_signature = best->filled_pattern;
-#if VERBOSE
-        printf("pushing slot %s\n", best->name);
-#endif
+        if (verbose) {
+            printf("pushing slot %s\n", best->name);
+        }
 
         install_word(best);
         return true;
     } else {
-#if VERBOSE
-        printf("slot %s has no usable words\n", best->name);
-#endif
+        if (verbose) {
+            printf("slot %s has no usable words\n", best->name);
+        }
         return false;
     }
 }
@@ -387,9 +406,9 @@ bool GRID::push_next_slot() {
 // If the pattern is full, mark slot as filled and push
 //
 void GRID::install_word(SLOT* slot) {
-#if VERBOSE
-    printf("installing %s in slot %s\n", slot->current_word, slot->name);
-#endif
+    if (verbose) {
+        printf("installing %s in slot %s\n", slot->current_word, slot->name);
+    }
     nsteps++;
     for (int i=0; i<slot->len; i++) {
         LINK &link = slot->links[i];
@@ -416,11 +435,11 @@ void GRID::install_word(SLOT* slot) {
             }
 #endif
             // other slot is now filled
-#if VERBOSE
-            printf("slot %s is now also filled: %s\n",
-                slot2->name, slot2->filled_pattern
-            );
-#endif
+            if (verbose) {
+                printf("slot %s is now also filled: %s\n",
+                    slot2->name, slot2->filled_pattern
+                );
+            }
             slot2->compatible_words = NULL;
             slot2->filled = true;
             strcpy(slot2->current_word, slot2->filled_pattern);
@@ -428,9 +447,9 @@ void GRID::install_word(SLOT* slot) {
             filled_slots.push_back(slot2);
         }
     }
-#if VERBOSE
-    print_grid(*this, false, stdout);
-#endif
+    if (verbose) {
+        print_grid(*this, false, stdout);
+    }
 }
 
 // We just popped this slot S from the stack.
@@ -478,9 +497,9 @@ int SLOT::top_affecting_level() {
 // Update filled_patterns of unfilled crossing slots
 //
 void SLOT::uninstall_word() {
-#if VERBOSE
-    printf("uninstalling %s from slot %s\n", current_word, name);
-#endif
+    if (verbose) {
+        printf("uninstalling %s from slot %s\n", current_word, name);
+    }
     for (int i=0; i<len; i++) {
         LINK &link = links[i];
         if (link.empty()) continue;
@@ -513,52 +532,53 @@ void SLOT::uninstall_word() {
 bool GRID::backtrack() {
     while (1) {
         SLOT *slot = filled_slots.back();
-#if VERBOSE_BACKTRACK
-        printf("backtracking to slot %d\n", slot->num);
-#endif
+        if (verbose) {
+            printf("backtracking to slot %d\n", slot->num);
+        }
 
         slot->uninstall_word();
         if (!slot->compatible_words) {
             goto pop;
         }
-#if PRUNE
-        if (!slot->prune()) {
-#if VERBOSE
-            printf("popping slot %s because no crossings from higher slots\n",
-                slot->name
-            );
-#endif
-            goto pop;
+
+        if (do_prune) {
+            if (!slot->prune()) {
+                if (verbose) {
+                    printf("popping slot %s because no crossings from higher slots\n",
+                        slot->name
+                    );
+                }
+                goto pop;
+            }
         }
-#endif
 
         if (slot->find_next_usable_word(this)) {
             install_word(slot);
             return true;
         }
 
-#if VERBOSE
-        printf("popping slot %s: no more usable words\n", slot->name);
-#endif
+        if (verbose) {
+            printf("popping slot %s: no more usable words\n", slot->name);
+        }
 pop:
         filled_slots.pop_back();
         slot->filled = false;
         if (filled_slots.empty()) {
             return false;
         }
-        if (backjump) {
+        if (do_backjump) {
             int level = slot->top_affecting_level();
-#if VERBOSE
-            printf("backjumping to level %d\n", level);
-#endif
+            if (verbose) {
+                printf("backjumping to level %d\n", level);
+            }
             while (filled_slots.size() > level+1) {
                 slot = filled_slots.back();
                 slot->uninstall_word();
                 slot->filled = false;
                 filled_slots.pop_back();
-#if VERBOSE
-                printf("popping slot %s: backjump\n", slot->name);
-#endif
+                if (verbose) {
+                    printf("popping slot %s: backjump\n", slot->name);
+                }
             }
         }
     }
@@ -609,9 +629,9 @@ int GRID::get_commands() {
 bool GRID::find_solutions(bool curses, double period) {
     static int count = 0;
     double start_cpu_time = get_cpu_time();
-#if VERBOSE
-    print_state();
-#endif
+    if (verbose) {
+        print_state();
+    }
     while (1) {
         if (filled_slots.size() + npreset_slots == slots.size()) {
             // we have a solution
@@ -624,9 +644,9 @@ bool GRID::find_solutions(bool curses, double period) {
             print_grid(*this, false, stdout);
             printf("CPU time: %f\n", get_cpu_time() - start_cpu_time);
             printf("Steps: %d\n", nsteps);
-#if VERBOSE
-            exit(0);
-#endif
+            if (verbose) {
+                exit(0);
+            }
             switch (get_commands()) {
             case CONT:
                 backtrack();
@@ -647,13 +667,13 @@ bool GRID::find_solutions(bool curses, double period) {
                 break;
             }
         }
-#if not(VERBOSE)
-        count++;
-        if (count == 10000) {
-            count = 0;
-            print_grid(*this, curses, stdout);
+        if (!verbose) {
+            count++;
+            if (count == 10000) {
+                count = 0;
+                print_grid(*this, curses, stdout);
+            }
         }
-#endif
     }
     printf("no more solutions\n");
 }
@@ -674,9 +694,9 @@ int main(int argc, char** argv) {
     bool show_grid = false;
     double period=0;
     const char* grid_file = NULL;
-#if VERBOSE
-    curses = false;
-#endif
+    if (verbose) {
+        curses = false;
+    }
 
     for (int i=1; i<argc; i++) {
         if (!strcmp(argv[i], "--word_list")) {
@@ -696,7 +716,19 @@ int main(int argc, char** argv) {
         } else if (!strcmp(argv[i], "--solution_file")) {
             solution_fname = argv[++i];
         } else if (!strcmp(argv[i], "--backjump")) {
-            backjump = true;
+            do_backjump = true;
+        } else if (!strcmp(argv[i], "--prune")) {
+            do_prune = true;
+        } else if (!strcmp(argv[i], "--allow_dups")) {
+            allow_dups = true;
+        } else if (!strcmp(argv[i], "--verbose")) {
+            verbose = true;
+        } else if (!strcmp(argv[i], "--verbose_next_word")) {
+            verbose_next_word = true;
+        } else if (!strcmp(argv[i], "--verbose_next_slot")) {
+            verbose_next_slot = true;
+        } else if (!strcmp(argv[i], "--verbose_prune")) {
+            verbose_prune = true;
         } else {
             fprintf(stderr, "unknown option '%s'\n", argv[i]);
             exit(1);
