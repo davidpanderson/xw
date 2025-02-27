@@ -1,0 +1,405 @@
+A grid is a set of slots S.
+Each is a sequence of spaces with length L(S)
+
+Each space i in a slot can be shared with zero or more
+crossing slots S', with an index j in S'.
+
+Note: this is more general than traditional 2D grids.
+Could have 3D grids, tori, Klein bottle, etc.
+
+Terms:
+
+Suppose a slot S contains a pattern P
+
+- let C(P) be the set of words compatible with P.
+    We call these the "compatible" words.
+
+- The pattern is "complete" if it has letters in all shared slots.
+    In that case we can fill the slot with any word in C(P);
+    the choice doesn't make an difference.
+
+- If the pattern is not complete, and W is a word in C(P),
+    we say that W is "usable" if
+    for every space i that's empty in P and has at least 1 crossing word:
+        for each of these crossing words,
+        if we add W[i] to their template P',
+        then C(P') is nonempty
+    i.e. filling S with W will leave at least one compatible word
+        for each crossing word
+
+---------
+State:
+
+- a stack of filled slots S1..Sn.
+
+- For each filled slot Si, a list of words C(Si)
+    (compatible with the letters in S1..Si-1)
+    and an index into C(Si) (next word to try)
+
+- For each unfilled slot, a list of words compatible with filled slots
+
+basic idea: depth-first search.
+    if get stuck, pop 1 level, try next word
+
+// scan the list of compatible words for S, starting from current index.
+// if find one that's usable, install it and return true
+// else return false
+find_next_usable(S)
+    while S.ind < len(C(S))
+        W = C(S.ind)
+        found = false
+        for each crossing slot A
+            (only need to do this for spaces that have changed)
+            compute C(A)
+            if empty:
+                found = true
+                break
+        if !found
+            return true
+        S.ind++
+    return false
+
+// decide what slot to fill next (i.e. the one with smallest C(S))
+// scan its C(S) from the start, looking for a usable word.
+// If find one:
+//      install that word in slot
+//      update C(S') for crossing slots
+//      return true
+// else return false
+// 
+next_slot():
+    (called after installed word for top filled slot;
+    all unfilled slots have nonempty compatible list)
+    if no unfilled slots
+        return true
+    find unfilled slot S for which P(S) is smallest
+    if find_usable(S)
+        stack.push(S)
+        return next_slot()
+    else
+        return backtrack()
+
+// called when next_slot() failed
+// for slot S on top of stack.
+// uninstall current word
+// if next_usable()
+//      return true
+//      note: only consider words that differ in a position
+//          crossed by non-filled slot
+// else
+//      pop S from stack
+//      return false
+backtrack():
+    called when no more words for top filled slot
+    pop stack
+    if empty stack
+        return false 
+    S = new top of stack
+    if find_usable(S)
+        return stack.push(S)
+    else
+        return backtrack()
+
+main():
+    stack = empty
+    if next_slot():
+        done
+    else:
+        no solution
+
+Note: some slots not in S1..Sn may be filled because
+    all their letters are crossed by S1..Sn
+
+optimization:
+    maintain a dictionary
+        pattern -> word list
+        where pattern is a string of letters and '*',
+        and list is the words matching that pattern
+
+when scanning compatible words for a slot,
+    all that actually matters is the crossing letters.
+    For example, suppose in a 3-letter word the only crossing letter
+    is the last one.
+    We try 'ana' and (after a lot of work) it fails
+    We try 'man' and it fails
+    We come to 'tea'.  No reason to try it because 'ana' already failed.
+
+    So instead of having lists of compatible words for a slot,
+    we should lists (or sets) of compatible patterns
+
+terms
+    'mask': array of bools for which positions have crossing
+    mword (word, mask): chars from word in masked positions
+    mwords (len, mask)
+        for words of that len, unique mwords
+
+Approach
+    for each slot
+        len
+        mask_len
+        mask (to generate actual words later)
+        list of mwords (static)
+        list of compatible mwords indices
+            can cache these in map pattern -> vector
+
+A solution for a grid is an mword for each slot.
+Can then list possible words for each slot
+
+------------------
+Standard crosswords, by convention, have unique words.
+How to enforce this?
+
+an mword (for a particular slot) has an associated set of words
+if 2 slots have the same length but different masks,
+they could have different mwords both with the same word.
+problem:
+given N sets, can we pick a unique element from each set?
+see https://stackoverflow.com/questions/55139919/algorithm-to-determine-the-possibility-of-selecting-1-unique-element-from-n-arra
+To use this, we'd have to
+for each slot (or each (len, mask)) have a mapping
+mword -> set of word indices
+maintain this set for filled slots
+in 'usable' check, as a last step, do the unique-element algorithm
+
+Note: in square grids, mwords and words are the same.
+so in the case the usable check can compare with filled words of that len
+(could use a data structure)
+
+The motivation for mwords is:
+suppose a slot has uncrossed letters,
+say the middle space in a 3-letter slot.
+If you filled in 'bat' and got stuck and backtracked.
+You don't want to then use 'but'; you'll get stuck again.
+
+This is true in the absence of a uniqueness requirement.
+But not in the presence of it.
+You might get stuck because some other slot needed 'bat',
+and you couldn't use it.
+
+for highly-connected puzzles it's probably better just to use
+words (not mwords) and then the uniqueness problem is easier
+---------------
+back-jumping
+see https://cdn.aaai.org/AAAI/1990/AAAI90-032.pdf
+suppose you fail to find a usable word in a slot S.
+
+The lack of a usable word for S might be due to:
+- uniqueness: S had a compatible word
+    but it was already used in a filled slot S2
+- S is crossed by a filled slot S2
+- S is crossed by an unfilled slot S3,
+    and S3 is crossed by a filled slot S2
+
+Let X be the set of these S2's.
+Back-tracking tries the next word in the last
+(i.e. top of stack) filled slot S',
+But if S' is not in X,
+changing its word won't lead to a usable word for S
+
+Back-jumping means:
+Find the topmost S2 in X
+We can then either:
+
+- pop the filled slots above X
+(this could cause a lot of work to be re-done)
+
+- move X to the top of the stack,
+and recompute masks and compatible word lists for slots above it.
+This might work better, but it may cause solutions to be skipped.
+
+Implementation
+add SLOT.stack_level
+add SLOT.dup_stack_level: initialize
+find_next_usable:
+    if dup, max s2.level with dup_stack_level
+
+backtrack: if no usable words
+    top_conflict = 0
+    for each pos
+        if no link continue
+        s2 = link slot
+        if s2->filled
+            max top_conflict with s2->stack_level
+            if top_conflict is this - 1, break
+        else
+            for each pos in s2
+                if link with filled slot s3
+                    max top_conflict with s3->stack_level
+                    if top_conflict is this - 1, break
+    while level > top_conflict
+        unlink word
+        filled = false
+        pop
+---------------------
+Preset letters
+
+A given slot can have some cells preset to particular letters.
+Store this in slot.filled_pattern
+Use that pattern when generate usable word list.
+SLOT::preset_char(int pos, char)
+SLOT::preset(char*)
+
+A slot is preset if all its cells are preset.
+Mark preset slots as filled (but don't push on filled stack)
+
+in grid initiation:
+- if preset char, copy to crossword
+    check consistency
+- find preset slots and mark as filled
+---------------------
+puzzle ideas
+
+grid on a torus or Klein bottle
+words can go in either direction
+    add reverses to word list
+words can start anywhere
+    add shifts to word list
+hexagonal or 3D grids
+    would need multiple links per cell
+--------------
+blacksquare:
+    --wrapx --twistx --wrapy --twisty
+    wraparound
+        for each row
+            for each cell
+                if blank and prev cell is black
+                    make word
+                    scan until hit black square
+                    wrap around, possibly w/ twist
+                    break if wrapped
+    generate across/down cell numbers
+---------------
+move main() to xw.cpp
+options:
+    --word_list fname
+    --curses [0|1]
+        use curses; default 1
+    --show_grid
+        after parsing grid file, show grid and exit
+    --period x
+        during fill, display grid every x seconds
+        if 0, show every update
+
+debugging output:
+    set VERBOSE flags in xw.h and recompile
+
+when get a solution:
+    s filename
+        save solution to file
+    CR or c
+        continue to next solution
+    q
+        quit
+    v word
+        add word to veto list and continue
+
+functions provided by grid type code
+    make_grid(FILE*, GRID&)
+    print_grid(GRID&, curses)
+---------------
+barrier grids
+in the file, every 2nd line is an alternation of (vertical) barriers and cells,
+starting with a barrier.
+Other lines, starting with the first, are (horizontal) 'barrier lines'
+in which the odd positions can be - (barrier) or blank.
+
+Scan the file and make the following arrays (nrows x ncols):
+chars: preset chars
+bar_above
+bar_below
+bar_right
+bar_left
+---------------
+grid reset
+
+(need to store 'preset pattern' separately from filled_pattern)
+
+for each slot
+    filled_pattern = preset_pattern
+reshuffle words
+clear_pattern_cache()
+filled_slots.clear();
+prepare()
+---------------
+Pruning
+
+for a filled slot, we have a list of compatible words,
+i.e. those that match the pattern of crossing letters from lower slots.
+
+example: suppose for a slot S we try 'bat'.
+We end up getting stuck and backtracking to S.
+Suppose later slots crossed the a and t but not the b.
+Then 'cat' will lead to getting stuck also.
+(Is this really true?  I think so).
+We can skip all words that match _at.
+
+Implementation: maintain an array
+bool SLOT::ref_by_higher[MAX_LEN]
+saying which cells were linked to slots pushed higher on the stack.
+There's no point in trying another word that matches
+the current word in these positions.
+
+Clear this array when push S.
+
+When push a slot, set the flag in crossing filled slots.
+
+When we backtrack to S,
+make a 'prune pattern' P of the cells that were crossed
+by higher-level slots (_at in this case).
+Words that match P can be 'pruned' from S's compatible list.
+
+If the result is empty, backtrack from S.
+I think this is essentially backjumping.
+
+If P is empty, there's a problem that changing S can't fix.
+Backtrack from S.
+
+PATTERN_CACHE:
+    a 'prune signature' is the original filled pattern
+    followed by zero or more prune patterns.
+
+    ILIST *get_matches_prune(
+        int cur_pos, prune_signature, prune_pattern, next_pos
+    )
+        get map[prune_signature] (guaranteed to be present)
+        remove words that match prune_pattern
+        Also returns the pos for the next word
+        (question: will this always be zero?)
+
+SLOT:
+    cur_pos
+    compatible_words: i.e. compatible with lower stack entries
+    prune_signature: concatenation of prune patterns
+--------------
+benchmarking
+
+add --max_time option
+add --json option
+when find solution, don't show it; instead write JSON containing
+    word list name and count
+    options
+    number of steps (installed words)
+    max # of filled slots
+    CPU time
+
+suite
+a "task" is a combo of grid and word list.
+
+'variants':
+    none
+    backjump
+    prune
+
+Given a list of tasks:
+for each variant
+    for each task
+        do N runs w/ random shuffle
+        compute:
+            % of successful runs
+            of successful runs: mean and median of nsteps
+
+then for each variant display:
+    # of tasks where this variant had the most successful runs
+    # of tasks where this variant had the lowest median nsteps
+
+write this in python

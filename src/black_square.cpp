@@ -6,14 +6,6 @@
 // fill a black-square grid, described by a 'grid file'
 // usage:
 // black_square [options] filename
-//
-// options:
-// --mirror
-//      2n+1 rows are given; append the 180 deg rotation of the first 2n
-// --wrap_row, --wrap_col
-//      words wrap around in the x or y directions
-// --twist_row, --twist_col
-//      if wrap, apply a twist (e.g. Klein bottle)
 
 #define DEFAULT_GRID_FILE "../grids/bs_11_1"
 
@@ -343,24 +335,32 @@ void find_slots(GRID &grid) {
 }
 
 void print_grid(GRID &grid, bool curses, FILE *f) {
-    char chars[MAX_SIZE][MAX_SIZE*2];
+    char chars[MAX_SIZE][MAX_SIZE*3];
     int i, j;
+    if (!curses) {
+        printf("   ");
+        for (j=0; j<size[1]; j++) {
+            printf("%-2d ", j);
+        }
+        printf("\n");
+    }
     for (i=0; i<size[0]; i++) {
         for (j=0; j<size[1]; j++) {
             SLOT *slot = across_slots[i][j];
             if (slot) {
                 int pos = across_pos[i][j];
                 if (slot->filled) {
-                    chars[i][j*2] = slot->current_word[pos];
+                    chars[i][j*3] = slot->current_word[pos];
                 } else {
-                    chars[i][j*2] = slot->filled_pattern[pos];
+                    chars[i][j*3] = slot->filled_pattern[pos];
                 }
             } else {
-                chars[i][j*2] = '*';
+                chars[i][j*3] = '*';
             }
-            chars[i][j*2+1] = ' ';
+            chars[i][j*3+1] = ' ';
+            chars[i][j*3+2] = ' ';
         }
-        chars[i][size[1]*2] = 0;
+        chars[i][size[1]*3] = 0;
     }
     if (curses) {
         for (i=0; i<size[0]; i++) {
@@ -370,16 +370,16 @@ void print_grid(GRID &grid, bool curses, FILE *f) {
         refresh();
     } else {
         for (i=0; i<size[0]; i++) {
-            fprintf(f, "%s\n", &(chars[i][0]));
+            fprintf(f, "%-2d %s\n", i, &(chars[i][0]));
         }
     }
 }
 
-void make_grid(const char* fname, GRID &grid) {
-    if (!fname) fname = DEFAULT_GRID_FILE;
-    FILE *f = fopen(fname, "r");
+void make_grid(const char* &path, GRID &grid) {
+    if (!path) path = DEFAULT_GRID_FILE;
+    FILE *f = fopen(path, "r");
     if (!f) {
-        printf("no grid file %s\n", fname);
+        printf("no grid file %s\n", path);
         exit(1);
     }
     read_grid_file(f);

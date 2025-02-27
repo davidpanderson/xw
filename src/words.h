@@ -32,6 +32,7 @@ struct WORDS {
     int max_len;
     void read(const char* fname, bool reverse_words);
     void read_veto_file(const char* fname);
+    void print_vetoed_words();
     void print_counts();
     void shuffle();
 };

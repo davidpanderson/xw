@@ -65,6 +65,14 @@ void WORDS::read_veto_file(const char* fname) {
     fclose(f);
 }
 
+void WORDS::print_vetoed_words() {
+    int n = 0;
+    for (int i=1; i<=MAX_LEN; i++) {
+        n += vetoed_words[i].size();
+    }
+    printf("vetoed words: %d\n", n);
+}
+
 void WORDS::shuffle() {
     for (int i=1; i<=MAX_LEN; i++) {
         if (words[i].empty()) continue;

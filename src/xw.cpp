@@ -5,13 +5,36 @@
 #include <cstdio>
 #include <cstring>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <sys/resource.h>
+#include <unistd.h>
 
 #include "xw.h"
 
-// It must be linked with these functions:
+const char* options = "\
+options:\n\
+--allow_dups        allow duplicate words\n\
+--backjump          backtrack over multiple slots\n\
+--curses            show partial solutions with curses\n\
+--grid_file f       use the given grid file in ../grids\n\
+--help              show options\n\
+--max_time x        give up after x CPU seconds\n\
+--prune             prune compatible word lists\n\
+--reverse           allow words to be reversed\n\
+--show_grid         show grid details at start\n\
+--solution_file f   write solutions to f (default 'solution')\n\
+--step_period n     show partial solution and check CPU time every n changes\n\
+--verbose           show each slot and word addition\n\
+--verbose_slot      show slot selection details\n\
+--verbose_word      show word selection details\n\
+--verbose_prune     show pruning details\n\
+--veto_file f       use given veto file (default 'vetoed_words')\n\
+--word_list f       use given word list\n\
+";
 
-extern void make_grid(const char* filename, GRID&);
+// This must be linked with two grid-type-specific functions:
+
+extern void make_grid(const char* &filename, GRID&);
     // read the given file and populate the GRID structure.
     // We supply two variants:
     // black-square format (NYT type puzzles)
@@ -22,6 +45,7 @@ extern void print_grid(GRID&, bool curses, FILE *f);
     // else write to the given FILE*
 
 // files
+const char* grid_file = NULL;
 const char* veto_fname = "vetoed_words";
 const char* solution_fname = "solutions";
 const char* word_list = "../words/words";
@@ -37,15 +61,19 @@ bool verbose = false;
     // show slot push/pop
     // show word install/uninstall
     // print grid after each word install
-bool verbose_next_word = false;
+bool verbose_word = false;
     // show each word tested
     // if no words, show check masks
-bool verbose_next_slot = false;
+bool verbose_slot = false;
     // for unfilled slots, show word count and filled_pattern
 bool verbose_prune = false;
     // on backtrack, show pruning info
+bool curses = false;
+int step_period = 10000;
+double max_time = 0;
 
 // behavior
+bool shuffle = false;
 bool reverse_words = false;
 bool allow_dups = false;
 
@@ -56,6 +84,39 @@ double get_cpu_time() {
     getrusage(RUSAGE_SELF, &ru);
     return (double)ru.ru_utime.tv_sec + ((double)ru.ru_utime.tv_usec) / 1e6
         + (double)ru.ru_stime.tv_sec + ((double)ru.ru_stime.tv_usec) / 1e6;
+}
+
+void print_info() {
+    time_t t = time(0);
+    printf("date: %s", ctime(&t));
+    printf("grid file: %s\n", grid_file);
+    printf("word list: %s\n", word_list);
+    words.print_vetoed_words();
+    printf("backjump: %s\n", do_backjump?"yes":"no");
+    printf("prune: %s\n", do_prune?"yes":"no");
+    printf("reverse: %s\n", reverse_words?"yes":"no");
+    printf("allow dups: %s\n", allow_dups?"yes":"no");
+}
+
+void print_info_json() {
+    time_t t = time(0);
+    printf("{\n\
+'date': '%s'\n\
+'grid_file': '%s'\n\
+'word_list': '%s'\n\
+'backjump': '%s'\n\
+'prune': '%s'\n\
+'reverse': '%s'\n\
+'allow_dups': '%s'\n\
+}\n",
+        ctime(&t),
+        grid_file,
+        word_list,
+        do_backjump?"yes":"no",
+        do_prune?"yes":"no",
+        reverse_words?"yes":"no",
+        allow_dups?"yes":"no"
+    );
 }
 
 ///////////////// SLOT ///////////////////////
@@ -225,7 +286,7 @@ bool SLOT::find_next_usable_word(GRID *grid) {
         clear_usable_letter_checked();
     }
     int n = compatible_words->size();
-    if (verbose_next_word) {
+    if (verbose_word) {
         printf("find_next_usable_word() slot %d: %d of %d\n",
             num, next_word_index, n
         );
@@ -234,7 +295,7 @@ bool SLOT::find_next_usable_word(GRID *grid) {
     while (next_word_index < n) {
         int ind = (*compatible_words)[next_word_index++];
         char* w = words.words[len][ind];
-        if (verbose_next_word) {
+        if (verbose_word) {
             printf("   checking %s\n", w);
         }
         bool usable = true;
@@ -271,7 +332,7 @@ bool SLOT::find_next_usable_word(GRID *grid) {
             }
         }
         if (usable) {
-            if (verbose_next_word) {
+            if (verbose_word) {
                 printf("   %s is usable for slot %d\n", w, num);
                 //print_usable();
             }
@@ -279,7 +340,7 @@ bool SLOT::find_next_usable_word(GRID *grid) {
             return true;
         }
     }
-    if (verbose_next_word) {
+    if (verbose_word) {
         printf("   no compat words are usable for slot %d\n", num);
         print_usable();
     }
@@ -333,13 +394,13 @@ bool GRID::push_next_slot() {
     //
     size_t nbest = 9999999;
     SLOT* best=0;
-    if (verbose_next_slot) {
+    if (verbose_slot) {
         printf("push_next_slot():\n");
     }
     for (SLOT* slot: slots) {
         if (slot->filled) continue;
         size_t n = slot->compatible_words->size();
-        if (verbose_next_slot) {
+        if (verbose_slot) {
             printf("   slot %s, %ld compatible words\n",
                 slot->name, n
             );
@@ -371,7 +432,7 @@ bool GRID::push_next_slot() {
 
     best->next_word_index = 0;
     if (best->find_next_usable_word(this)) {
-        if (verbose_next_slot) {
+        if (verbose_slot) {
             printf("   slot %s has usable words\n", best->name);
         }
         best->filled = true;
@@ -626,8 +687,7 @@ int GRID::get_commands() {
     }
 }
 
-bool GRID::find_solutions(bool curses, double period) {
-    static int count = 0;
+bool GRID::find_solutions() {
     double start_cpu_time = get_cpu_time();
     if (verbose) {
         print_state();
@@ -653,6 +713,8 @@ bool GRID::find_solutions(bool curses, double period) {
                 break;
             case RESTART:
                 restart();
+                nsteps = 0;
+                start_cpu_time = get_cpu_time();
                 break;
             case EXIT:
                 exit(0);
@@ -667,10 +729,15 @@ bool GRID::find_solutions(bool curses, double period) {
                 break;
             }
         }
-        if (!verbose) {
-            count++;
-            if (count == 10000) {
-                count = 0;
+        if (!(nsteps % step_period)) {
+            if (max_time) {
+                double et = get_cpu_time() - start_cpu_time;
+                if (et > max_time) {
+                    printf("max CPU time exceeded\n");
+                    exit(0);
+                }
+            }
+            if (!verbose) {
                 print_grid(*this, curses, stdout);
             }
         }
@@ -690,65 +757,79 @@ void GRID::restart() {
 
 int main(int argc, char** argv) {
     GRID grid;
-    bool curses = true;
     bool show_grid = false;
-    double period=0;
-    const char* grid_file = NULL;
-    if (verbose) {
-        curses = false;
-    }
+    bool help = false;
 
     for (int i=1; i<argc; i++) {
-        if (!strcmp(argv[i], "--word_list")) {
-            word_list = argv[++i];
-        } else if (!strcmp(argv[i], "--grid_file")) {
-            grid_file = argv[++i];
-        } else if (!strcmp(argv[i], "--curses")) {
-            if (atoi(argv[++i]) == 0) curses = false;
-        } else if (!strcmp(argv[i], "--show_grid")) {
-            show_grid = true;
-        } else if (!strcmp(argv[i], "--period")) {
-            period = atof(argv[++i]);
-        } else if (!strcmp(argv[i], "--reverse")) {
-            reverse_words = true;
-        } else if (!strcmp(argv[i], "--veto_file")) {
-            veto_fname = argv[++i];
-        } else if (!strcmp(argv[i], "--solution_file")) {
-            solution_fname = argv[++i];
+        if (!strcmp(argv[i], "--allow_dups")) {
+            allow_dups = true;
         } else if (!strcmp(argv[i], "--backjump")) {
             do_backjump = true;
+        } else if (!strcmp(argv[i], "--curses")) {
+            curses = true;
+        } else if (!strcmp(argv[i], "--grid_file")) {
+            grid_file = argv[++i];
+        } else if (!strcmp(argv[i], "--help")) {
+            help = true;
         } else if (!strcmp(argv[i], "--prune")) {
             do_prune = true;
-        } else if (!strcmp(argv[i], "--allow_dups")) {
-            allow_dups = true;
+        } else if (!strcmp(argv[i], "--reverse")) {
+            reverse_words = true;
+        } else if (!strcmp(argv[i], "--show_grid")) {
+            show_grid = true;
+        } else if (!strcmp(argv[i], "--shuffle")) {
+            shuffle = true;
+        } else if (!strcmp(argv[i], "--solution_file")) {
+            solution_fname = argv[++i];
+        } else if (!strcmp(argv[i], "--step_period")) {
+            step_period = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--verbose")) {
             verbose = true;
-        } else if (!strcmp(argv[i], "--verbose_next_word")) {
-            verbose_next_word = true;
-        } else if (!strcmp(argv[i], "--verbose_next_slot")) {
-            verbose_next_slot = true;
+        } else if (!strcmp(argv[i], "--verbose_slot")) {
+            verbose_slot = true;
+        } else if (!strcmp(argv[i], "--verbose_word")) {
+            verbose_word = true;
         } else if (!strcmp(argv[i], "--verbose_prune")) {
             verbose_prune = true;
+        } else if (!strcmp(argv[i], "--veto_file")) {
+            veto_fname = argv[++i];
+        } else if (!strcmp(argv[i], "--word_list")) {
+            word_list = argv[++i];
         } else {
             fprintf(stderr, "unknown option '%s'\n", argv[i]);
             exit(1);
         }
     }
+    if (help) {
+        printf("%s", options);
+        exit(0);
+    }
     solution_file = fopen(solution_fname, "wa");
     words.read_veto_file(veto_fname);
     words.read(word_list, reverse_words);
-    //words.shuffle();
+    if (shuffle) {
+        std::srand(time(0)+getpid());
+        words.shuffle();
+    }
     init_pattern_cache();
+    if (grid_file) {
+        char buf[256];
+        sprintf(buf, "../grids/%s", grid_file);
+        grid_file = buf;
+    }
     make_grid(grid_file, grid);
     grid.prepare_grid();
     if (show_grid) {
         grid.print_state(true);
         exit(0);
     }
+    if (verbose) {
+        print_info();
+    }
     if (curses) {
         initscr();
     }
-    grid.find_solutions(curses, period);
+    grid.find_solutions();
     if (curses) {
         endwin();
     }

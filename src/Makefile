@@ -1,10 +1,10 @@
-all: barrier black_square
+all: bar black_square
 
 SRC = xw.cpp words.cpp
 HDR = xw.h words.h
 
-barrier: barrier.cpp $(SRC) $(HDR)
-	g++ -g barrier.cpp $(SRC) -lncurses -o barrier
+bar: bar.cpp $(SRC) $(HDR)
+	g++ -g bar.cpp $(SRC) -lncurses -o bar
 black_square: black_square.cpp $(SRC) $(HDR)
 	g++ -g black_square.cpp $(SRC) -lncurses -o black_square
 

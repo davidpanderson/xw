@@ -171,7 +171,7 @@ struct GRID {
     bool push_next_slot();
     bool backtrack();
     void install_word(SLOT*);
-    bool find_solutions(bool curses, double period);
+    bool find_solutions();
     void restart();
     int get_commands();
 };

@@ -22,6 +22,8 @@
 //
 //
 
+#define DEFAULT_GRID_FILE "../grids/bar_13_1"
+
 char file_chars[MAX_SIZE*2+1][MAX_SIZE*2+1];
     // chars from the grid file (with barriers)
 int file_nrows=0, file_ncols=0;   // file chars, not grid
@@ -77,6 +79,31 @@ void next(int (&c)[2], int coord, int (&d)[2]) {
     }
 }
 
+bool valid_even_row(char *buf, int nc, int lineno) {
+    for (int i=0; i<nc; i++) {
+        if (buf[i] == '-') continue;
+        if (lineno && buf[i] == ' ') continue;
+            // first row must be all -
+        return false;
+    }
+    return true;
+}
+
+bool valid_odd_row(char *buf, int nc) {
+    for (int i=0; i<nc; i++) {
+        if (i%2) {
+            if (buf[i] == '.') continue;
+            if (islower(buf[i])) continue;
+            return false;
+        } else {
+            if (buf[i] == '|') continue;
+            if (buf[i] == ' ') continue;
+            return false;
+        }
+    }
+    return true;
+}
+
 // read the file; populate chars and bar_* arrays
 //
 void read_grid_file(FILE* f, GRID& grid) {
@@ -87,6 +114,7 @@ void read_grid_file(FILE* f, GRID& grid) {
     // check for flags
     //
     while (fgets(buf, sizeof(buf), f)) {
+        if (buf[0] == '#') continue;
         if (!strcmp(buf, "mirror\n")) {
             mirror = true;
             continue;
@@ -104,13 +132,46 @@ void read_grid_file(FILE* f, GRID& grid) {
             continue;
         }
         int nc = strlen(buf)-1;
-        if (file_ncols) {
-            if (nc != file_ncols) {
-                fprintf(stderr, "size mismatch in %s\n", buf);
+        buf[nc] = 0;    // remove trailing \n
+
+        if (file_nrows == 0) {
+            if (!valid_even_row(buf, nc, 0)) {
+                fprintf(stderr, "invalid first row: %s\n", buf);
                 exit(1);
             }
-        } else {
+            if (nc%2 == 0) {
+                fprintf(stderr, "first row must have odd length: %s\n", buf);
+                exit(1);
+            }
             file_ncols = nc;
+        } else {
+            if (file_nrows%2) {
+                if (!valid_odd_row(buf, nc)) {
+                    fprintf(stderr, "invalid row %d: %s\n", file_nrows, buf);
+                    exit(1);
+                }
+                if (nc != file_ncols) {
+                    fprintf(stderr, "size mismatch in %s: wanted %d, got %d\n",
+                        buf, file_ncols, nc
+                    );
+                    exit(1);
+                }
+            } else {
+                // even row: horizontal bars
+                if (!valid_even_row(buf, nc, file_nrows)) {
+                    fprintf(stderr, "invalid row %d: %s\n", file_nrows, buf);
+                    exit(1);
+                }
+                if (nc > file_ncols) {
+                    fprintf(stderr, "size mismatch in %s: %d > %d\n",
+                        buf, nc, file_ncols
+                    );
+                    exit(1);
+                }
+                while (strlen(buf) < file_ncols) {
+                    strcat(buf, " ");
+                }
+            }
         }
         strncpy(file_chars[file_nrows], buf, file_ncols);
         file_nrows++;
@@ -126,11 +187,11 @@ void read_grid_file(FILE* f, GRID& grid) {
     }
 
     if (file_nrows%2 == 0) {
-        fprintf(stderr, "nrows must be odd\n");
+        fprintf(stderr, "file_nrows must be odd\n");
         exit(1);
     }
     if (file_ncols%2 == 0) {
-        fprintf(stderr, "ncols must be odd\n");
+        fprintf(stderr, "file_ncols must be odd\n");
         exit(1);
     }
     size[0] = file_nrows/2;
@@ -311,14 +372,11 @@ void print_grid(GRID &grid, bool curses, FILE* f) {
     }
 }
 
-int make_grid(const char* fname, GRID &grid) {
-    if (!fname) {
-        fprintf(stderr, "no grid file specified\n");
-        exit(1);
-    }
-    FILE *f = fopen(fname, "r");
+int make_grid(const char* &path, GRID &grid) {
+    if (!path) path = DEFAULT_GRID_FILE;
+    FILE *f = fopen(path, "r");
     if (!f) {
-        fprintf(stderr, "can't open %s\n", fname);
+        fprintf(stderr, "can't open %s\n", path);
         exit(1);
     }
     read_grid_file(f, grid); 
