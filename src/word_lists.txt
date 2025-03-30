@@ -1,2 +1,2 @@
-words
-words_combined
+../words/words
+../words/words_combined

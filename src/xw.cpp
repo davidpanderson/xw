@@ -19,9 +19,11 @@ options:\n\
 --grid_file f       use the given grid file in ../grids\n\
 --help              show options\n\
 --max_time x        give up after x CPU seconds\n\
+--perf              on 1st solution, print JSON info and exit\n\
 --prune             prune compatible word lists\n\
 --reverse           allow words to be reversed\n\
 --show_grid         show grid details at start\n\
+--shuffle           shuffle words with nondeterministic seed\n\
 --solution_file f   write solutions to f (default 'solution')\n\
 --step_period n     show partial solution and check CPU time every n changes\n\
 --verbose           show each slot and word addition\n\
@@ -71,6 +73,7 @@ bool verbose_prune = false;
 bool curses = false;
 int step_period = 10000;
 double max_time = 0;
+bool perf = false;
 
 // behavior
 bool shuffle = false;
@@ -86,9 +89,16 @@ double get_cpu_time() {
         + (double)ru.ru_stime.tv_sec + ((double)ru.ru_stime.tv_usec) / 1e6;
 }
 
-void print_info() {
+char* date_str() {
+    static char buf[256];
     time_t t = time(0);
-    printf("date: %s", ctime(&t));
+    strcpy(buf, ctime(&t));
+    buf[strlen(buf)-1] = 0;
+    return buf;
+}
+
+void print_params() {
+    printf("date: %s\n", date_str());
     printf("grid file: %s\n", grid_file);
     printf("word list: %s\n", word_list);
     words.print_vetoed_words();
@@ -98,24 +108,20 @@ void print_info() {
     printf("allow dups: %s\n", allow_dups?"yes":"no");
 }
 
-void print_info_json() {
-    time_t t = time(0);
+void print_perf_json(int nsteps, double et) {
     printf("{\n\
-'date': '%s'\n\
-'grid_file': '%s'\n\
-'word_list': '%s'\n\
-'backjump': '%s'\n\
-'prune': '%s'\n\
-'reverse': '%s'\n\
-'allow_dups': '%s'\n\
+        \"success\": 1,\n\
+        \"nsteps\": %d,\n\
+        \"cpu_time\": %f\n\
 }\n",
-        ctime(&t),
-        grid_file,
-        word_list,
-        do_backjump?"yes":"no",
-        do_prune?"yes":"no",
-        reverse_words?"yes":"no",
-        allow_dups?"yes":"no"
+        nsteps, et
+    );
+}
+
+void print_fail_json() {
+    printf("{\n\
+        'success': 0;\n\
+}\n"
     );
 }
 
@@ -700,6 +706,12 @@ bool GRID::find_solutions() {
                 refresh();
                 endwin();
             }
+            double now = get_cpu_time();
+            double etime = now - start_cpu_time;
+            if (perf) {
+                print_perf_json(nsteps, now);
+                exit(0);
+            }
             printf("\nSolution found:\n");
             print_grid(*this, false, stdout);
             printf("CPU time: %f\n", get_cpu_time() - start_cpu_time);
@@ -714,7 +726,7 @@ bool GRID::find_solutions() {
             case RESTART:
                 restart();
                 nsteps = 0;
-                start_cpu_time = get_cpu_time();
+                start_cpu_time = now;
                 break;
             case EXIT:
                 exit(0);
@@ -733,11 +745,15 @@ bool GRID::find_solutions() {
             if (max_time) {
                 double et = get_cpu_time() - start_cpu_time;
                 if (et > max_time) {
-                    printf("max CPU time exceeded\n");
+                    if (perf) {
+                        print_fail_json();
+                    } else {
+                        printf("max CPU time exceeded\n");
+                    }
                     exit(0);
                 }
             }
-            if (!verbose) {
+            if (!verbose && !perf) {
                 print_grid(*this, curses, stdout);
             }
         }
@@ -771,6 +787,10 @@ int main(int argc, char** argv) {
             grid_file = argv[++i];
         } else if (!strcmp(argv[i], "--help")) {
             help = true;
+        } else if (!strcmp(argv[i], "--max_time")) {
+            max_time = atof(argv[++i]);
+        } else if (!strcmp(argv[i], "--perf")) {
+            perf = true;
         } else if (!strcmp(argv[i], "--prune")) {
             do_prune = true;
         } else if (!strcmp(argv[i], "--reverse")) {
@@ -824,7 +844,7 @@ int main(int argc, char** argv) {
         exit(0);
     }
     if (verbose) {
-        print_info();
+        print_params();
     }
     if (curses) {
         initscr();

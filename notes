@@ -390,6 +390,20 @@ a "task" is a combo of grid and word list.
     backjump
     prune
 
+Goal: compare variants
+
+A given variant + task will in general produces a sequence of solutions.
+We'll look only at finding the first solution.
+Subsequent solutions may be minor variants.
+
+We pick some number of steps (say 1000 times the number of cells).
+If a (variant, task) doesn't find a solution by then, it 'fails'.
+
+For each variant we want to compute
+    - success fraction
+    - if success, mean/median #steps
+... across a large set of tasks.
+
 Given a list of tasks:
 for each variant
     for each task
