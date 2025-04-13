@@ -1,19 +1,23 @@
 # Compare the performance of algorithm variants;
-# currently: none, backjump, and prune.
+# none, backjump, and prune.
 #
-# A 'task' is the combination of a grid and a word list.
-# We measure performance of a variant over lots of tasks;
+# A 'task' is the combination of
+# - a variant
+# - a grid (type and file)
+# - a word list
+#
+# We measure the performance of a variant over multiple tasks;
 # it might work well for one, but badly for others.
 #
-# In addition, performance depends on the random number seed
+# Performance depends on the random number seed
 # used to shuffle word lists.
-# So for a given (variant, task) pair we do runs with
+# So for a given task pair we do runs with
 # NSEEDS different seeds (currently 10).
 #
 # Performance is measured in terms of "steps":
 # the installation of a word in a slot.
 #
-# MAXSTEPS is the max # of steps for a run.
+# MAX_TIME_PER_CELL is the max # of CPU seconds per cell for a run.
 # If no solution is found by then, the run fails.
 
 # input files:
@@ -21,29 +25,48 @@
 # bar_grids.txt: a list of bar grid filenames
 # word_lists.txt: a list of word list filenames
 
-MAXTIME = 180
+MAX_TIME_PER_CELL = 1.
 NSEEDS = 10
 
-variants = {
-    'default': '',
-    'prune': '--prune',
-    'backjump': '--backjump'
-}
+variant_names = [
+    'default',
+    'prune',
+    'backjump'
+]
+variant_args = [
+    '',
+    '--prune',
+    '--backjump'
+]
+nvariants = 3
+
 bs_grids = []
 bar_grids = []
 word_lists = []
 
 import subprocess, json, statistics
 
+class TASK_RESULT:
+    def __init__(self, var, gtype, gfile, wfile):
+        self.var = var
+        self.gtype = gtype
+        self.gfile = gfile
+        self.wfile = wfile
+        self.nsuccess = 0
+        self.median_nsteps = 0
+        self.median_cpu_time = 0
+
+    def __str__(self):
+        return 'grid type: %s\ngrid file: %s\nword file: %s\nsuccess: %d\nmedian_nsteps: %f\nmedian_cpu_time: %f\n'%(
+            self.gtype, self.gfile, self.wfile,
+            self.nsuccess, self.median_nsteps, self.median_cpu_time
+        )
+
 # for a given task and variant,
 # run the task NSEEDS times w/ different seeds.
-# return a 'perf summary' array with
-# - grid type and file
-# - number of runs that succeeded
-# - of the runs that succeeded, median # of steps
-# - of the runs that succeeded, median CPU time
+# Compute the stats, and return a TASK_RESULT
 #
-def do_task(var, gtype, gfile, wfile):
+def do_task(var: int, gtype: str, gfile: str, wfile: str) -> TASK_RESULT:
     cmd = [
         gtype,
         '--grid_file', gfile,
@@ -52,8 +75,8 @@ def do_task(var, gtype, gfile, wfile):
         '--perf',
         '--shuffle'
     ]
-    if variants[var] != '':
-        cmd.append(variants[var])
+    if variant_args[var] != '':
+        cmd.append(variant_args[var])
     print('cmd: ', cmd)
     nsteps = []
     cpu_time = []
@@ -65,28 +88,27 @@ def do_task(var, gtype, gfile, wfile):
         if out['success']:
             nsteps.append(out['nsteps'])
             cpu_time.append(out['cpu_time'])
-    ret = {}
-    ret['grid_type'] = gtype
-    ret['grid_file'] = gfile
-    ret['nsuccess'] = nsuccess
+            nsuccess += 1
+    ret = TASK_RESULT(var, gtype, gfile, wfile)
+    ret.nsuccess = nsuccess
     if nsuccess:
-        ret['med_nsteps'] = statistics.median(nsteps)
-        ret['med_cpu_time'] = statistics.median(cpu_time)
+        ret.median_nsteps = statistics.median(nsteps)
+        ret.median_cpu_time = statistics.median(cpu_time)
     return ret
 
 # for a given variant and grid, loop over word lists
-# and return a list of the resulting perf summaries
+# and return a list of the results
 #
-def do_grid(var, gtype, gridfile):
+def do_grid(var: int, gtype: str, gridfile: str) -> list[TASK_RESULT]:
     results = []
     for wlist in word_lists:
-        results.extend(do_task(var, gtype, gridfile, wlist))
+        results.append(do_task(var, gtype, gridfile, wlist))
     return results
 
 # for a given grid type, loop over grid files,
 # and return a list of the resulting perf summaries
 #
-def do_grid_type(var, gtype):
+def do_grid_type(var: int, gtype: str) -> list[TASK_RESULT]:
     results = []
     if gtype == 'blacksquare':
         for grid in bs_grids:
@@ -99,23 +121,60 @@ def do_grid_type(var, gtype):
 # for a given variant, loop over all grids
 # and return a list of the resulting perf summaries
 #
-def do_variant(var):
+def do_variant(var: int) -> list[TASK_RESULT]:
     results = do_grid_type(var, 'black_square')
     results.extend(do_grid_type(var, 'bar'))
     return results
 
-# print for each variant, show:
-# - the fraction of tasks for which it succeeds
-# - of the tasks for which all variants succeeded,
-#   the fraction for which this variant had the smallest median nsteps
+# show a comparison of the variants
+# 'var_results' is a list of the list of TASK_RESULTS for the 3 variants
+# These lists are in the same order.
+# For each task, compute
+# - the 'success rank' of each variant
+#   (1 if it had the most or was tied, etc.)
+# - the 'median nsteps' rank of each variant
+#   (similar; should this just be a tie-breaker for success rank?)
 #
-def print_summary(results):
-    pass
+# and for each variant print
+# - the sum of its success ranks
+# - the sum of its nsteps rank
+#
+def print_comparison(var_results: list[list[TASK_RESULT]]):
+    ntasks = len(var_results[0])
+    success_sum = [0]*nvariants
+    nsteps_sum = [0]*nvariants
+    success_val = [0]*nvariants
+    nsteps_val = [0]*nvariants
+    for i in range(ntasks):
+        for j in range(nvariants):
+            success_val[j] = var_results[j][i].nsuccess
+            nsteps_val[j] = var_results[j][i].median_nsteps
+        success_ranks = rank(success_val)
+        nsteps_ranks = rank(nsteps_val)
+        for j in range(nvariants):
+            success_sum[j] += success_ranks[j]
+            nsteps_sum[j] += nsteps_ranks[j]
+    for j in range(nvariants):
+        print('%s: success rank %d, nsteps rank %d'%(
+            variant_names[j], success_sum[j], nsteps_sum[j]
+        ))
 
-# for each task, show the results for each variant
+# given a list of numbers, return a list of their ranks
+# (lowest to highest)
+def rank(vals: list[float]):
+    sv = vals.copy()
+    sv.sort(reverse=True)
+    print(sv)
+    out = []
+    for v in vals:
+        out.append(sv.index(v))
+    return out
+
+# show the # TASK_RESULTS for the given variant.
 #
-def print_details(results):
-    pass
+def print_var_details(results: list[TASK_RESULT]):
+    for res in results:
+        print(res)
 
 def main():
     with open('bs_grids.txt') as f:
@@ -129,16 +188,17 @@ def main():
             word_lists.append(line.strip())
 
     var_results = {}
-    for var in variants:
+    for var in range(nvariants):
         results = do_variant(var)
         print(var, results)
         var_results[var] = results
 
-    print("Summary\n")
-    for var in variants:
-        print_summary(var_results[var])
     print("Details\n")
-    for var in variants:
-        print_details(var_results[var])
+    for var in range(nvariants):
+        print('Variant: ', variant_names[var])
+        print_var_details(var_results[var])
+
+    print("Comparison\n")
+    print_comparison(var_results)
 
 main()
